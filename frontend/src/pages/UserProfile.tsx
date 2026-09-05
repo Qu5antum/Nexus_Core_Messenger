@@ -18,8 +18,10 @@ import {
     getUserProfile,
     getUserAvatar,
 } from '../api/users'
-
-import { getUsersCommonChats } from '../api/chats'
+import {
+    getUsersCommonChats,
+    getChatAvatar,
+} from '../api/chats'
 
 type UserProfile = {
     id: string
@@ -62,6 +64,9 @@ export default function UserProfile() {
     const previewUrlRef =
         useRef<string | null>(null)
 
+    const chatAvatarUrlsRef =
+        useRef<Record<string, string>>({})
+
     const [profile, setProfile] =
         useState<UserProfile | null>(null)
 
@@ -85,6 +90,9 @@ export default function UserProfile() {
 
     const [commonChats, setCommonChats] =
         useState<CommonChat[]>([])
+
+    const [chatAvatarUrls, setChatAvatarUrls] =
+        useState<Record<string, string>>({})
 
     const [commonChatsLoading, setCommonChatsLoading] =
         useState(false)
@@ -155,6 +163,74 @@ export default function UserProfile() {
         }
     }
 
+    const loadChatAvatars = async (
+        chats: CommonChat[]
+    ) => {
+        if (chats.length === 0) {
+            return
+        }
+
+        const results =
+            await Promise.all(
+                chats.map(async (chat) => {
+                    try {
+                        const url =
+                            await getChatAvatar(
+                                chat.id
+                            )
+
+                        return {
+                            chatId: chat.id,
+                            url,
+                        }
+                    } catch (err) {
+                        console.log(
+                            `Chat avatar is not available: ${chat.id}`,
+                            err
+                        )
+
+                        return null
+                    }
+                })
+            )
+
+        const loadedAvatars =
+            results.filter(
+                (
+                    result
+                ): result is {
+                    chatId: string
+                    url: string
+                } => result !== null
+            )
+
+        if (loadedAvatars.length === 0) {
+            return
+        }
+
+        setChatAvatarUrls(
+            (prev) => {
+                const next = {
+                    ...prev,
+                }
+
+                loadedAvatars.forEach(
+                    ({
+                        chatId,
+                        url,
+                    }) => {
+                        next[chatId] = url
+                        chatAvatarUrlsRef.current[
+                            chatId
+                        ] = url
+                    }
+                )
+
+                return next
+            }
+        )
+    }
+
     const loadCommonChats = async (
         targetUserId: string
     ) => {
@@ -166,7 +242,13 @@ export default function UserProfile() {
                     targetUserId
                 )
 
-            setCommonChats(chats || [])
+            setCommonChats(
+                chats || []
+            )
+
+            await loadChatAvatars(
+                chats || []
+            )
         } catch (err) {
             console.error(
                 'Common chats loading error:',
@@ -174,8 +256,11 @@ export default function UserProfile() {
             )
 
             setCommonChats([])
+            setChatAvatarUrls({})
         } finally {
-            setCommonChatsLoading(false)
+            setCommonChatsLoading(
+                false
+            )
         }
     }
 
@@ -184,7 +269,9 @@ export default function UserProfile() {
             setError(
                 'Не удалось определить пользователя'
             )
+
             setLoading(false)
+
             return
         }
 
@@ -196,11 +283,12 @@ export default function UserProfile() {
                 setError(null)
                 setSuccess(null)
 
-                const user = isOwnProfile
-                    ? await getCurrentUserProfile()
-                    : await getUserProfile(
-                          profileUserId
-                      )
+                const user =
+                    isOwnProfile
+                        ? await getCurrentUserProfile()
+                        : await getUserProfile(
+                              profileUserId
+                          )
 
                 if (cancelled) {
                     return
@@ -225,12 +313,19 @@ export default function UserProfile() {
                     isOwnProfile
                 )
 
+                if (
+                    cancelled
+                ) {
+                    return
+                }
+
                 if (!isOwnProfile) {
                     await loadCommonChats(
                         profileUserId
                     )
                 } else {
                     setCommonChats([])
+                    setChatAvatarUrls({})
                 }
             } catch (err: any) {
                 if (cancelled) {
@@ -244,9 +339,11 @@ export default function UserProfile() {
 
                 setError(
                     String(
-                        err?.response?.data
+                        err?.response
+                            ?.data
                             ?.detail ||
-                        err?.response?.data ||
+                        err?.response
+                            ?.data ||
                         err?.message ||
                         'Не удалось загрузить профиль'
                     )
@@ -291,6 +388,20 @@ export default function UserProfile() {
                     previewUrlRef.current
                 )
             }
+
+            Object.values(
+                chatAvatarUrlsRef.current
+            ).forEach((url) => {
+                if (
+                    url.startsWith(
+                        'blob:'
+                    )
+                ) {
+                    URL.revokeObjectURL(
+                        url
+                    )
+                }
+            })
         }
     }, [])
 
@@ -301,7 +412,9 @@ export default function UserProfile() {
         ) {
             navigate(
                 '/profile',
-                { replace: true }
+                {
+                    replace: true,
+                }
             )
         }
     }, [
@@ -332,11 +445,14 @@ export default function UserProfile() {
             setError(
                 'Можно выбрать только изображение'
             )
+
             return
         }
 
         const newPreviewUrl =
-            URL.createObjectURL(file)
+            URL.createObjectURL(
+                file
+            )
 
         replacePreviewUrl(
             newPreviewUrl
@@ -381,10 +497,13 @@ export default function UserProfile() {
                         selectedAvatar,
                 })
 
-            setProfile(updatedUser)
+            setProfile(
+                updatedUser
+            )
 
             setUsername(
-                updatedUser.username || ''
+                updatedUser.username ||
+                    ''
             )
 
             setPhoneNumber(
@@ -397,8 +516,13 @@ export default function UserProfile() {
                     ''
             )
 
-            replacePreviewUrl(null)
-            setSelectedAvatar(null)
+            replacePreviewUrl(
+                null
+            )
+
+            setSelectedAvatar(
+                null
+            )
 
             if (hasNewAvatar) {
                 await loadAvatar(
@@ -409,7 +533,8 @@ export default function UserProfile() {
 
             localStorage.setItem(
                 'username',
-                updatedUser.username || ''
+                updatedUser.username ||
+                    ''
             )
 
             setSuccess(
@@ -423,9 +548,11 @@ export default function UserProfile() {
 
             setError(
                 String(
-                    err?.response?.data
+                    err?.response
+                        ?.data
                         ?.detail ||
-                    err?.response?.data ||
+                    err?.response
+                        ?.data ||
                     err?.message ||
                     'Не удалось обновить профиль'
                 )
@@ -444,8 +571,17 @@ export default function UserProfile() {
         navigate(-1)
     }
 
+    const handleCommonChatClick = (
+        chatId: string
+    ) => {
+        navigate(
+            `/chat/${chatId}`
+        )
+    }
+
     const displayedAvatar =
-        previewUrl || avatarUrl
+        previewUrl ||
+        avatarUrl
 
     const avatarLetter =
         profile?.username
@@ -460,8 +596,10 @@ export default function UserProfile() {
         participant: CommonChatParticipant
     ) => {
         return (
-            participant.user?.username ||
-            participant.user?.phone_number ||
+            participant.user
+                ?.username ||
+            participant.user
+                ?.phone_number ||
             'Пользователь'
         )
     }
@@ -488,7 +626,9 @@ export default function UserProfile() {
                     <button
                         type="button"
                         className="profile-back-button"
-                        onClick={handleBack}
+                        onClick={
+                            handleBack
+                        }
                     >
                         ← Назад
                     </button>
@@ -504,7 +644,9 @@ export default function UserProfile() {
                     <button
                         type="button"
                         className="profile-back-button"
-                        onClick={handleBack}
+                        onClick={
+                            handleBack
+                        }
                     >
                         ← Назад
                     </button>
@@ -526,7 +668,9 @@ export default function UserProfile() {
 
                 <form
                     className="profile-form"
-                    onSubmit={handleSave}
+                    onSubmit={
+                        handleSave
+                    }
                 >
                     <div className="profile-avatar-section">
                         <div className="profile-avatar-wrapper">
@@ -589,7 +733,9 @@ export default function UserProfile() {
 
                         <input
                             type="text"
-                            value={username}
+                            value={
+                                username
+                            }
                             onChange={(e) =>
                                 setUsername(
                                     e.target.value
@@ -665,7 +811,9 @@ export default function UserProfile() {
                         <button
                             type="submit"
                             className="profile-save-button"
-                            disabled={saving}
+                            disabled={
+                                saving
+                            }
                         >
                             {saving
                                 ? 'Сохранение...'
@@ -682,7 +830,9 @@ export default function UserProfile() {
                             </h3>
 
                             <span>
-                                {commonChats.length}
+                                {
+                                    commonChats.length
+                                }
                             </span>
                         </div>
 
@@ -690,68 +840,113 @@ export default function UserProfile() {
                             <div className="common-chats-loading">
                                 Загрузка общих групп...
                             </div>
-                        ) : commonChats.length === 0 ? (
+                        ) : commonChats.length ===
+                          0 ? (
                             <div className="common-chats-empty">
                                 У вас нет общих групп
                             </div>
                         ) : (
                             <div className="common-chats-list">
                                 {commonChats.map(
-                                    (chat) => (
-                                        <div
-                                            key={
+                                    (
+                                        chat
+                                    ) => {
+                                        const chatAvatar =
+                                            chatAvatarUrls[
                                                 chat.id
-                                            }
-                                            className="common-chat"
-                                        >
-                                            <div className="common-chat-info">
-                                                <div className="common-chat-avatar">
-                                                    {chat.title
-                                                        ?.charAt(
-                                                            0
-                                                        )
-                                                        .toUpperCase() ||
-                                                        '?'}
-                                                </div>
+                                            ]
 
-                                                <div className="common-chat-details">
-                                                    <h4>
-                                                        {
-                                                            chat.title
-                                                        }
-                                                    </h4>
+                                        const chatLetter =
+                                            chat.title
+                                                ?.charAt(
+                                                    0
+                                                )
+                                                .toUpperCase() ||
+                                            '?'
 
-                                                    <span>
-                                                        {
-                                                            chat.chat_participants
-                                                                ?.length
-                                                        }{' '}
-                                                        участников
-                                                    </span>
-                                                </div>
-                                            </div>
-
-                                            <div className="common-chat-participants">
-                                                {chat.chat_participants?.map(
-                                                    (
-                                                        participant,
-                                                        index
-                                                    ) => (
-                                                        <span
-                                                            key={`${chat.id}-${index}`}
-                                                            className="common-chat-participant"
-                                                        >
-                                                            {
-                                                                getParticipantName(
-                                                                    participant
-                                                                )
-                                                            }
-                                                        </span>
+                                        return (
+                                            <div
+                                                key={
+                                                    chat.id
+                                                }
+                                                className="common-chat"
+                                                role="button"
+                                                tabIndex={
+                                                    0
+                                                }
+                                                onClick={() =>
+                                                    handleCommonChatClick(
+                                                        chat.id
                                                     )
-                                                )}
+                                                }
+                                                onKeyDown={(
+                                                    event
+                                                ) => {
+                                                    if (
+                                                        event.key ===
+                                                        'Enter'
+                                                    ) {
+                                                        handleCommonChatClick(
+                                                            chat.id
+                                                        )
+                                                    }
+                                                }}
+                                            >
+                                                <div className="common-chat-info">
+                                                    <div className="common-chat-avatar">
+                                                        {chatAvatar ? (
+                                                            <img
+                                                                src={
+                                                                    chatAvatar
+                                                                }
+                                                                alt={
+                                                                    chat.title
+                                                                }
+                                                            />
+                                                        ) : (
+                                                            chatLetter
+                                                        )}
+                                                    </div>
+
+                                                    <div className="common-chat-details">
+                                                        <h4>
+                                                            {
+                                                                chat.title
+                                                            }
+                                                        </h4>
+
+                                                        <span>
+                                                            {
+                                                                chat.chat_participants
+                                                                    ?.length
+                                                            }{' '}
+                                                            участников
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="common-chat-participants">
+                                                    {chat.chat_participants?.map(
+                                                        (
+                                                            participant,
+                                                            index
+                                                        ) => (
+                                                            <span
+                                                                key={`${chat.id}-${index}`}
+                                                                className="common-chat-participant"
+                                                            >
+                                                                {
+                                                                    getParticipantName(
+                                                                        participant
+                                                                    )
+                                                                }
+                                                            </span>
+                                                        )
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    )
+                                        )
+                                    }
                                 )}
                             </div>
                         )}
@@ -761,4 +956,3 @@ export default function UserProfile() {
         </div>
     )
 }
-
