@@ -5,6 +5,7 @@ from fastapi import UploadFile
 from fastapi.responses import FileResponse
 from pathlib import Path
 import json
+from datetime import datetime
 
 from src.database.db import AsyncSession
 from src.api.schemas.user_schema import UserOut, UserUpdate
@@ -139,3 +140,10 @@ class UserService:
             path=file_path,
             media_type="image/*"
         )
+
+    async def get_user_last_seen_at(self, user_id: UUID) -> datetime | None:
+        last_seen_at = await self.user_repo.get_user_last_seen_at(user_id=user_id)
+
+        logger.info("Successful response of last seen of user")
+
+        return last_seen_at

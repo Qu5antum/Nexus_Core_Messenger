@@ -82,3 +82,12 @@ async def get_user_avatar_image(
     userService: UserService = Depends(get_user_service)
 ):
     return await userService.get_user_avatar_profile(user_id=user_id)
+
+
+@user_route.get("/user/{user_id}/last_seen", status_code=200)
+async def get_user_last_seen_at(
+    user_id: UUID,
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.USER)),
+    userService: UserService = Depends(get_user_service)
+):
+    return await userService.get_user_last_seen_at(user_id=user_id)

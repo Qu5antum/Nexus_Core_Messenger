@@ -103,3 +103,6 @@ export const getCurrentUserAvatar = async (): Promise<string | null> => {
         return null
     }
 }
+
+export const getUserLastSeenAt = (userId: string) =>
+  api.get(`/api/user/${userId}/last_seen`).then((response) => response.data)

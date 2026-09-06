@@ -183,7 +183,7 @@ class ChatParticipantService:
 
 			raise DatabaseException("Database error, pariticpant not removed")
 
-	async def get_participants_on_group_chat(self, chatId: UUID, user: User) -> list[ChatParticipantResponse]:
+	async def get_participants_chat(self, chatId: UUID, user: User) -> list[ChatParticipantResponse]:
 		cached_data = await self.redis.get(f"participant:{chatId}")
 
 		if cached_data:
@@ -194,15 +194,7 @@ class ChatParticipantService:
 				for item in json.loads(cached_data)
 			]
 
-		chat = await self.helper.get_chat_or_404(chatId=chatId)
-
-		if not chat.is_group:
-			logger.warning(
-				"Chat is private, can't get participants",
-				extra={"chat_id": str(chatId)}
-			)
-
-			raise ChatIsNotGroupException("Chat is not group chat")
+		await self.helper.get_chat_or_404(chatId=chatId)
 
 		await self.helper.get_participant_or_400(userId=user.id, chatId=chatId)
 

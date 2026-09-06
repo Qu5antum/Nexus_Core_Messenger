@@ -54,7 +54,7 @@ async def get_participants(
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.USER)),
     chatParticipantService: ChatParticipantService = Depends(get_chat_participant_service)
 ):
-    return await chatParticipantService.get_participants_on_group_chat(
+    return await chatParticipantService.get_participants_chat(
         chatId=chat_id,
         user=user
     )

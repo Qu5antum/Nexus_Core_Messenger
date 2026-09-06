@@ -31,7 +31,7 @@ class UserRepository(BaseRepository):
 
         return result.scalar_one_or_none()
 
-    async def get_username_by_user_id(self, userId: UUID):
+    async def get_username_by_user_id(self, userId: UUID) -> str | None:
         result = await self.session.execute(
             select(self.model.username)
             .where(self.model.id == userId)
@@ -39,7 +39,7 @@ class UserRepository(BaseRepository):
 
         return result.scalar_one_or_none()
 
-    async def get_user_avatar_url_by_id(self, user_id: UUID):
+    async def get_user_avatar_url_by_id(self, user_id: UUID) -> str | None:
         result = await self.session.execute(
             select(self.model.avatar_url)
             .where(self.model.id==user_id)
@@ -55,3 +55,11 @@ class UserRepository(BaseRepository):
 
         user.last_seen_at = datetime.now(timezone.utc)
         await self.session.commit()
+
+    async def get_user_last_seen_at(self, user_id: UUID) -> datetime | None:
+        result = await self.session.execute(
+            select(self.model.last_seen_at)
+            .where(self.model.id == user_id)
+        )
+
+        return result.scalar_one_or_none()
