@@ -4,6 +4,7 @@ from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 import datetime
+from datetime import timezone
 from enum import Enum
 from typing import Optional
 
@@ -61,6 +62,11 @@ class User(Base):
 
     role: Mapped[UserRole] = mapped_column(default=UserRole.USER)
     password: Mapped[str] = mapped_column(nullable=False)
+
+    last_seen_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
     participation_in_chats: Mapped[list['ChatParticipant']] = relationship(back_populates="user")
     messages: Mapped[list["Message"]] = relationship(back_populates="sender")

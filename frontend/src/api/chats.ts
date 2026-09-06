@@ -13,6 +13,23 @@ type CreateGroupChatData = {
     file?: File | null
 }
 
+export type ParticipantUser = {
+    id: string
+    username?: string | null
+    phone_number?: string | null
+    avatar?: string | null
+    last_seen_at?: string | null
+    is_online?: boolean
+}
+
+export type Participant = {
+    id: string
+    chat_id: string
+    user_id: string
+    joined_at: string
+    user?: ParticipantUser | null
+}
+
 export const createGroupChat = (
     data: CreateGroupChatData
 ) => {
@@ -121,8 +138,15 @@ export const deleteChat = (chatId: string) =>
 export const addParticipant = (chatId: string, phoneNumber: string) =>
     api.post(`/api/chat/${chatId}/add_participant`, null, { params: { phone_number: phoneNumber } }).then(r => r.data)
 
-export const getParticipants = (chatId: string) =>
-    api.get(`/api/chat/${chatId}/participants`).then(r => r.data)
+export const getParticipants = async (
+    chatId: string
+): Promise<Participant[]> => {
+    const response = await api.get<Participant[]>(
+        `/api/chat/${chatId}/participants`
+    )
+
+    return response.data
+}
 
 export const removeParticipant = (chatId: string, userId: string) =>
     api.delete(`/api/chat/${chatId}/participant/${userId}/remove_participant`).then(r => r.data)

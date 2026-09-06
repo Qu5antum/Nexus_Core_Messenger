@@ -1268,3 +1268,35 @@ button:disabled {
     outline: 2px solid #64748b;
     outline-offset: 2px;
 }
+
+.participant-avatar {
+    position: relative;
+}
+
+.online-indicator {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #22c55e;
+    border: 2px solid white;
+}
+
+.participant-details {
+    display: flex;
+    flex-direction: column;
+}
+
+.participant-status {
+    font-size: 12px;
+}
+
+.participant-status.online {
+    color: #22c55e;
+}
+
+.participant-status.offline {
+    color: #888;
+}

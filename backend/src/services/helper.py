@@ -20,7 +20,7 @@ class Helper:
 	def __init__(self, session: AsyncSession):
 		self.session = session
 		self.user_repo = UserRepository(session=self.session)
-		self.chat_repo = ChatRepository(session=self.session, user_repo=self.user_repo)
+		self.chat_repo = ChatRepository(session=self.session)
 		self.chat_participant_repo = ChatParticipantRepository(session=self.session)
 		self.message_repo = MessageRepository(session=self.session)
 

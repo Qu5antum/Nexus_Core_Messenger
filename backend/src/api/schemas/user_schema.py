@@ -24,8 +24,7 @@ class UserCreate(UserBase):
 
 class UserOut(UserBase):
     id: UUID
-    created_at: datetime
-    updated_at: datetime
+    last_seen_at: datetime | None = None
     
     model_config = ConfigDict(from_attributes=True)
 

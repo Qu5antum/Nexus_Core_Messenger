@@ -72,6 +72,8 @@ type ParticipantUser = {
     username?: string | null
     phone_number?: string | null
     avatar?: string | null
+    last_seen_at?: string | null
+    is_online?: boolean
 }
 
 type Participant = {
@@ -85,7 +87,6 @@ type Participant = {
 export default function Chat() {
     const { chatId = '' } = useParams()
     const navigate = useNavigate()
-
     const [messages, setMessages] = useState<Message[]>([])
     const [text, setText] = useState('')
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -95,24 +96,19 @@ export default function Chat() {
     const [loading, setLoading] = useState(false)
     const [sending, setSending] = useState(false)
     const [error, setError] = useState<string | null>(null)
-
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
     const [editingText, setEditingText] = useState('')
     const [editingLoading, setEditingLoading] = useState(false)
-
     const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null)
-
     const [searchText, setSearchText] = useState('')
     const [searchResults, setSearchResults] = useState<Message[]>([])
     const [searchLoading, setSearchLoading] = useState(false)
     const [isSearching, setIsSearching] = useState(false)
-
     const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({})
     const [userAvatarUrls, setUserAvatarUrls] = useState<Record<string, string>>({})
-
+    const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set())
     const [isRecording, setIsRecording] = useState(false)
     const [recordingTime, setRecordingTime] = useState(0)
-
     const wsRef = useRef<WebSocket | null>(null)
     const messagesEndRef = useRef<HTMLDivElement | null>(null)
     const imageInputRef = useRef<HTMLInputElement | null>(null)
@@ -121,10 +117,8 @@ export default function Chat() {
     const mediaRecorderRef = useRef<MediaRecorder | null>(null)
     const recordingChunksRef = useRef<Blob[]>([])
     const recordingTimerRef = useRef<number | null>(null)
-
     const currentUserId = localStorage.getItem('user_id') || ''
     const currentUsername = localStorage.getItem('username') || ''
-
     const isGroupChat = chat?.is_group === true
     const isOwner = isGroupChat && chat?.owner_id === currentUserId
 
@@ -138,80 +132,152 @@ export default function Chat() {
         if (!bytes) {
             return '0 Bytes'
         }
-
-        const sizes = [
-            'Bytes',
-            'KB',
-            'MB',
-            'GB',
-        ]
-
+        const sizes = ['Bytes', 'KB', 'MB', 'GB']
         const index = Math.min(
             Math.floor(Math.log(bytes) / Math.log(1024)),
             sizes.length - 1
         )
-
-        return `${(
-            bytes / Math.pow(1024, index)
-        ).toFixed(2)} ${sizes[index]}`
+        return `${(bytes / Math.pow(1024, index)).toFixed(2)} ${sizes[index]}`
     }
 
     const formatRecordingTime = (seconds: number) => {
         const minutes = Math.floor(seconds / 60)
         const remainingSeconds = seconds % 60
+        return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
+    }
 
-        return `${String(minutes).padStart(2, '0')}:${String(
-            remainingSeconds
-        ).padStart(2, '0')}`
+    const formatLastSeen = (lastSeenAt?: string | null) => {
+        if (!lastSeenAt) {
+            return 'Не был в сети'
+        }
+        const date = new Date(lastSeenAt)
+        if (Number.isNaN(date.getTime())) {
+            return 'Не был в сети'
+        }
+        const now = new Date()
+        const diffMs = now.getTime() - date.getTime()
+        if (diffMs < 0) {
+            return 'Не был в сети'
+        }
+        const diffMinutes = Math.floor(diffMs / 1000 / 60)
+        if (diffMinutes < 1) {
+            return 'Был только что'
+        }
+        if (diffMinutes < 60) {
+            return `Был ${diffMinutes} мин назад`
+        }
+        const diffHours = Math.floor(diffMinutes / 60)
+        if (diffHours < 24) {
+            return `Был ${diffHours} ч назад`
+        }
+        const diffDays = Math.floor(diffHours / 24)
+        if (diffDays === 1) {
+            return 'Был вчера'
+        }
+        if (diffDays < 7) {
+            return `Был ${diffDays} дн назад`
+        }
+        return date.toLocaleDateString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+        })
     }
 
     const isMessageEdited = (message: Message) => {
         if (!message.edited_at || !message.sent_at) {
             return false
         }
-
         const sentAt = new Date(message.sent_at).getTime()
         const editedAt = new Date(message.edited_at).getTime()
-
-        if (
-            Number.isNaN(sentAt) ||
-            Number.isNaN(editedAt)
-        ) {
+        if (Number.isNaN(sentAt) || Number.isNaN(editedAt)) {
             return false
         }
-
         return editedAt !== sentAt
+    }
+
+    const setUserOnline = (userId: string) => {
+        setOnlineUsers((prev) => {
+            const next = new Set(prev)
+            next.add(userId)
+            return next
+        })
+    }
+
+    const setUserOffline = (userId: string) => {
+        setOnlineUsers((prev) => {
+            const next = new Set(prev)
+            next.delete(userId)
+            return next
+        })
+    }
+
+    const updateParticipantOnlineStatus = (
+        userId: string,
+        isOnline: boolean,
+        lastSeenAt?: string | null
+    ) => {
+        setParticipants((prev) =>
+            prev.map((participant) => {
+                const participantUserId =
+                    participant.user?.id || participant.user_id
+                if (participantUserId !== userId) {
+                    return participant
+                }
+                return {
+                    ...participant,
+                    user: participant.user
+                        ? {
+                              ...participant.user,
+                              is_online: isOnline,
+                              ...(lastSeenAt !== undefined
+                                  ? { last_seen_at: lastSeenAt }
+                                  : {}),
+                          }
+                        : participant.user,
+                }
+            })
+        )
     }
 
     useEffect(() => {
         if (!chatId) {
             return
         }
-
         const loadData = async () => {
             try {
                 setLoading(true)
                 setError(null)
-
                 const chatInfo = await getChat(chatId)
                 setChat(chatInfo)
-
                 const msgs = await getMessages(chatId)
                 setMessages(msgs)
-
                 if (chatInfo.is_group) {
                     const parts = await getParticipants(chatId)
                     setParticipants(parts)
+                    setOnlineUsers(
+                        new Set(
+                            parts
+                                .filter(
+                                    (participant) =>
+                                        participant.user?.is_online === true
+                                )
+                                .map(
+                                    (participant) =>
+                                        participant.user?.id ||
+                                        participant.user_id
+                                )
+                        )
+                    )
                 } else {
                     setParticipants([])
+                    setOnlineUsers(new Set())
                 }
-
                 setTimeout(() => {
                     scrollToBottom(false)
                 }, 100)
             } catch (e: any) {
                 console.error(e)
-
                 setError(
                     String(
                         e?.response?.data?.detail ||
@@ -223,7 +289,6 @@ export default function Chat() {
                 setLoading(false)
             }
         }
-
         loadData()
     }, [chatId])
 
@@ -231,12 +296,10 @@ export default function Chat() {
         if (!chatId || messages.length === 0) {
             return
         }
-
         const loadAttachments = async () => {
             const allAttachments = messages.flatMap(
                 (message) => message.attachments || []
             )
-
             const uniqueAttachments = Array.from(
                 new Map(
                     allAttachments.map((attachment) => [
@@ -245,42 +308,32 @@ export default function Chat() {
                     ])
                 ).values()
             )
-
-            const attachmentsToLoad =
-                uniqueAttachments.filter(
-                    (attachment) =>
-                        !attachmentUrls[attachment.id]
-                )
-
+            const attachmentsToLoad = uniqueAttachments.filter(
+                (attachment) => !attachmentUrls[attachment.id]
+            )
             if (attachmentsToLoad.length === 0) {
                 return
             }
-
             const results = await Promise.all(
-                attachmentsToLoad.map(
-                    async (attachment) => {
-                        try {
-                            const url = await getAttachment(
-                                chatId,
-                                attachment.id
-                            )
-
-                            return {
-                                id: attachment.id,
-                                url,
-                            }
-                        } catch (e) {
-                            console.error(
-                                'Attachment load error:',
-                                e
-                            )
-
-                            return null
+                attachmentsToLoad.map(async (attachment) => {
+                    try {
+                        const url = await getAttachment(
+                            chatId,
+                            attachment.id
+                        )
+                        return {
+                            id: attachment.id,
+                            url,
                         }
+                    } catch (e) {
+                        console.error(
+                            'Attachment load error:',
+                            e
+                        )
+                        return null
                     }
-                )
+                })
             )
-
             const loadedUrls = results.filter(
                 (
                     result
@@ -289,43 +342,32 @@ export default function Chat() {
                     url: string
                 } => result !== null
             )
-
             if (loadedUrls.length === 0) {
                 return
             }
-
             setAttachmentUrls((prev) => {
                 const next = { ...prev }
-
-                loadedUrls.forEach(
-                    ({ id, url }) => {
-                        next[id] = url
-                    }
-                )
-
+                loadedUrls.forEach(({ id, url }) => {
+                    next[id] = url
+                })
                 return next
             })
         }
-
         loadAttachments()
-    }, [messages, chatId])
+    }, [messages, chatId, attachmentUrls])
 
     useEffect(() => {
         return () => {
-            Object.values(attachmentUrls).forEach(
-                (url) => URL.revokeObjectURL(url)
-            )
+            Object.values(attachmentUrls).forEach((url) => {
+                URL.revokeObjectURL(url)
+            })
         }
     }, [attachmentUrls])
 
     useEffect(() => {
-        if (
-            !isGroupChat ||
-            participants.length === 0
-        ) {
+        if (!isGroupChat || participants.length === 0) {
             return
         }
-
         const loadUserAvatars = async () => {
             const userIds = Array.from(
                 new Set(
@@ -338,41 +380,29 @@ export default function Chat() {
                         .filter(Boolean)
                 )
             )
-
             const usersToLoad = userIds.filter(
-                (userId) =>
-                    !userAvatarUrls[userId]
+                (userId) => !userAvatarUrls[userId]
             )
-
             if (usersToLoad.length === 0) {
                 return
             }
-
             const results = await Promise.all(
-                usersToLoad.map(
-                    async (userId) => {
-                        try {
-                            const url =
-                                await getUserAvatar(
-                                    userId
-                                )
-
-                            return {
-                                userId,
-                                url,
-                            }
-                        } catch (e) {
-                            console.error(
-                                `Avatar load error for user ${userId}:`,
-                                e
-                            )
-
-                            return null
+                usersToLoad.map(async (userId) => {
+                    try {
+                        const url = await getUserAvatar(userId)
+                        return {
+                            userId,
+                            url,
                         }
+                    } catch (e) {
+                        console.error(
+                            `Avatar load error for user ${userId}:`,
+                            e
+                        )
+                        return null
                     }
-                )
+                })
             )
-
             const loadedAvatars = results.filter(
                 (
                     result
@@ -381,32 +411,25 @@ export default function Chat() {
                     url: string
                 } => result !== null
             )
-
             if (loadedAvatars.length === 0) {
                 return
             }
-
             setUserAvatarUrls((prev) => {
                 const next = { ...prev }
-
-                loadedAvatars.forEach(
-                    ({ userId, url }) => {
-                        next[userId] = url
-                    }
-                )
-
+                loadedAvatars.forEach(({ userId, url }) => {
+                    next[userId] = url
+                })
                 return next
             })
         }
-
         loadUserAvatars()
-    }, [participants, isGroupChat])
+    }, [participants, isGroupChat, userAvatarUrls])
 
     useEffect(() => {
         return () => {
-            Object.values(userAvatarUrls).forEach(
-                (url) => URL.revokeObjectURL(url)
-            )
+            Object.values(userAvatarUrls).forEach((url) => {
+                URL.revokeObjectURL(url)
+            })
         }
     }, [userAvatarUrls])
 
@@ -414,18 +437,11 @@ export default function Chat() {
         if (!chatId) {
             return
         }
-
-        const token =
-            localStorage.getItem('access_token')
-
+        const token = localStorage.getItem('access_token')
         if (!token) {
             return
         }
-
-        const ws = new WebSocket(
-            buildWsUrl(token)
-        )
-
+        const ws = new WebSocket(buildWsUrl(token))
         wsRef.current = ws
 
         ws.onopen = () => {
@@ -434,36 +450,43 @@ export default function Chat() {
 
         ws.onmessage = (event) => {
             try {
-                const payload = JSON.parse(
-                    event.data
-                )
+                const payload = JSON.parse(event.data)
+
+                if (payload.type === 'user.online') {
+                    const userId = String(payload.user_id)
+                    setUserOnline(userId)
+                    updateParticipantOnlineStatus(userId, true)
+                    return
+                }
+
+                if (payload.type === 'user.offline') {
+                    const userId = String(payload.user_id)
+                    const lastSeenAt =
+                        payload.last_seen_at || null
+                    setUserOffline(userId)
+                    updateParticipantOnlineStatus(
+                        userId,
+                        false,
+                        lastSeenAt
+                    )
+                    return
+                }
 
                 if (
-                    payload.type ===
-                        'message_created' &&
-                    String(payload.chat_id) ===
-                        String(chatId)
+                    payload.type === 'message_created' &&
+                    String(payload.chat_id) === String(chatId)
                 ) {
-                    const newMessage: Message =
-                        payload.data
-
+                    const newMessage: Message = payload.data
                     setMessages((prev) => {
                         const exists = prev.some(
                             (message) =>
-                                message.id ===
-                                newMessage.id
+                                message.id === newMessage.id
                         )
-
                         if (exists) {
                             return prev
                         }
-
-                        return [
-                            ...prev,
-                            newMessage,
-                        ]
+                        return [...prev, newMessage]
                     })
-
                     setTimeout(() => {
                         scrollToBottom()
                     }, 50)
@@ -484,9 +507,7 @@ export default function Chat() {
         }
 
         ws.onclose = () => {
-            console.log(
-                'WebSocket disconnected'
-            )
+            console.log('WebSocket disconnected')
         }
 
         return () => {
@@ -495,13 +516,10 @@ export default function Chat() {
         }
     }, [chatId])
 
-    const handleSelectFile = (
-        file: File | undefined
-    ) => {
+    const handleSelectFile = (file: File | undefined) => {
         if (!file) {
             return
         }
-
         setSelectedFile(file)
         setError(null)
     }
@@ -509,30 +527,21 @@ export default function Chat() {
     const handleImageChange = (
         e: ChangeEvent<HTMLInputElement>
     ) => {
-        handleSelectFile(
-            e.target.files?.[0]
-        )
-
+        handleSelectFile(e.target.files?.[0])
         e.target.value = ''
     }
 
     const handleVideoChange = (
         e: ChangeEvent<HTMLInputElement>
     ) => {
-        handleSelectFile(
-            e.target.files?.[0]
-        )
-
+        handleSelectFile(e.target.files?.[0])
         e.target.value = ''
     }
 
     const handleFileChange = (
         e: ChangeEvent<HTMLInputElement>
     ) => {
-        handleSelectFile(
-            e.target.files?.[0]
-        )
-
+        handleSelectFile(e.target.files?.[0])
         e.target.value = ''
     }
 
@@ -543,55 +552,36 @@ export default function Chat() {
     const handleSend = async () => {
         if (
             !chatId ||
-            (
-                !text.trim() &&
-                !selectedFile
-            )
+            (!text.trim() && !selectedFile)
         ) {
             return
         }
-
         try {
             setSending(true)
             setError(null)
-
-            const textToSend =
-                text.trim()
-
-            const fileToSend =
-                selectedFile
-
+            const textToSend = text.trim()
+            const fileToSend = selectedFile
             setText('')
             setSelectedFile(null)
-
             const data = await sendMessage(
                 chatId,
                 textToSend || undefined,
                 fileToSend
             )
-
             setMessages((prev) => {
                 const exists = prev.some(
-                    (message) =>
-                        message.id === data.id
+                    (message) => message.id === data.id
                 )
-
                 if (exists) {
                     return prev
                 }
-
-                return [
-                    ...prev,
-                    data,
-                ]
+                return [...prev, data]
             })
-
             setTimeout(() => {
                 scrollToBottom()
             }, 50)
         } catch (e: any) {
             console.error(e)
-
             setError(
                 String(
                     e?.response?.data?.detail ||
@@ -607,10 +597,7 @@ export default function Chat() {
     const handleKeyDown = (
         e: KeyboardEvent<HTMLInputElement>
     ) => {
-        if (
-            e.key === 'Enter' &&
-            !e.shiftKey
-        ) {
+        if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             handleSend()
         }
@@ -619,22 +606,14 @@ export default function Chat() {
     const startRecording = async () => {
         try {
             setError(null)
-
             const stream =
-                await navigator.mediaDevices.getUserMedia(
-                    {
-                        audio: true,
-                    }
-                )
-
-            const recorder =
-                new MediaRecorder(stream)
-
+                await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                })
+            const recorder = new MediaRecorder(stream)
             recordingChunksRef.current = []
 
-            recorder.ondataavailable = (
-                event
-            ) => {
+            recorder.ondataavailable = (event) => {
                 if (event.data.size > 0) {
                     recordingChunksRef.current.push(
                         event.data
@@ -643,51 +622,37 @@ export default function Chat() {
             }
 
             recorder.onstop = () => {
-                const audioBlob =
-                    new Blob(
-                        recordingChunksRef.current,
-                        {
-                            type:
-                                recorder.mimeType ||
-                                'audio/webm',
-                        }
-                    )
-
-                const extension =
-                    audioBlob.type.includes(
-                        'ogg'
-                    )
-                        ? 'ogg'
-                        : 'webm'
-
-                const audioFile =
-                    new File(
-                        [audioBlob],
-                        `voice-${Date.now()}.${extension}`,
-                        {
-                            type: audioBlob.type,
-                        }
-                    )
-
-                setSelectedFile(
-                    audioFile
+                const audioBlob = new Blob(
+                    recordingChunksRef.current,
+                    {
+                        type:
+                            recorder.mimeType ||
+                            'audio/webm',
+                    }
                 )
-
-                stream
-                    .getTracks()
-                    .forEach(
-                        (track) =>
-                            track.stop()
-                    )
-
+                const extension = audioBlob.type.includes(
+                    'ogg'
+                )
+                    ? 'ogg'
+                    : 'webm'
+                const audioFile = new File(
+                    [audioBlob],
+                    `voice-${Date.now()}.${extension}`,
+                    {
+                        type: audioBlob.type,
+                    }
+                )
+                setSelectedFile(audioFile)
+                stream.getTracks().forEach(
+                    (track) => track.stop()
+                )
                 setIsRecording(false)
                 setRecordingTime(0)
+                mediaRecorderRef.current = null
             }
 
             recorder.start()
-            mediaRecorderRef.current =
-                recorder
-
+            mediaRecorderRef.current = recorder
             setIsRecording(true)
             setRecordingTime(0)
 
@@ -699,7 +664,6 @@ export default function Chat() {
                 }, 1000)
         } catch (e) {
             console.error(e)
-
             setError(
                 'Не удалось получить доступ к микрофону'
             )
@@ -709,64 +673,43 @@ export default function Chat() {
     const stopRecording = () => {
         if (
             mediaRecorderRef.current &&
-            mediaRecorderRef.current
-                .state !== 'inactive'
+            mediaRecorderRef.current.state !== 'inactive'
         ) {
             mediaRecorderRef.current.stop()
         }
-
-        if (
-            recordingTimerRef.current !==
-            null
-        ) {
+        if (recordingTimerRef.current !== null) {
             window.clearInterval(
                 recordingTimerRef.current
             )
-
             recordingTimerRef.current = null
         }
     }
 
     useEffect(() => {
         return () => {
-            if (
-                recordingTimerRef.current !==
-                null
-            ) {
+            if (recordingTimerRef.current !== null) {
                 window.clearInterval(
                     recordingTimerRef.current
                 )
             }
-
             if (
                 mediaRecorderRef.current &&
-                mediaRecorderRef.current
-                    .state !== 'inactive'
+                mediaRecorderRef.current.state !== 'inactive'
             ) {
                 mediaRecorderRef.current.stop()
             }
         }
     }, [])
 
-    const handleStartEdit = (
-        message: Message
-    ) => {
+    const handleStartEdit = (message: Message) => {
         if (
-            message.sender_id !==
-                currentUserId ||
+            message.sender_id !== currentUserId ||
             !message.text
         ) {
             return
         }
-
-        setEditingMessageId(
-            message.id
-        )
-
-        setEditingText(
-            message.text
-        )
-
+        setEditingMessageId(message.id)
+        setEditingText(message.text)
         setError(null)
     }
 
@@ -776,59 +719,43 @@ export default function Chat() {
     }
 
     const handleSaveEdit = async () => {
-        if (
-            !chatId ||
-            !editingMessageId
-        ) {
+        if (!chatId || !editingMessageId) {
             return
         }
-
-        const newText =
-            editingText.trim()
-
+        const newText = editingText.trim()
         if (!newText) {
             setError(
                 'Сообщение не может быть пустым'
             )
-
             return
         }
-
         try {
             setEditingLoading(true)
             setError(null)
-
-            const updatedMessage =
-                await editMessage(
-                    chatId,
-                    editingMessageId,
-                    newText
-                )
-
+            const updatedMessage = await editMessage(
+                chatId,
+                editingMessageId,
+                newText
+            )
             setMessages((prev) =>
                 prev.map(
                     (message) =>
-                        message.id ===
-                        editingMessageId
+                        message.id === editingMessageId
                             ? updatedMessage
                             : message
                 )
             )
-
             setSearchResults((prev) =>
                 prev.map(
                     (message) =>
-                        message.id ===
-                        editingMessageId
+                        message.id === editingMessageId
                             ? updatedMessage
                             : message
                 )
             )
-
             handleCancelEdit()
         } catch (e: any) {
             console.error(e)
-
             setError(
                 String(
                     e?.response?.data?.detail ||
@@ -847,45 +774,27 @@ export default function Chat() {
         if (!chatId) {
             return
         }
-
-        if (
-            !window.confirm(
-                'Удалить это сообщение?'
-            )
-        ) {
+        if (!window.confirm('Удалить это сообщение?')) {
             return
         }
-
         try {
-            setDeletingMessageId(
-                messageId
-            )
-
+            setDeletingMessageId(messageId)
             setError(null)
-
-            await deleteMessage(
-                chatId,
-                messageId
-            )
-
+            await deleteMessage(chatId, messageId)
             setMessages((prev) =>
                 prev.filter(
                     (message) =>
-                        message.id !==
-                        messageId
+                        message.id !== messageId
                 )
             )
-
             setSearchResults((prev) =>
                 prev.filter(
                     (message) =>
-                        message.id !==
-                        messageId
+                        message.id !== messageId
                 )
             )
         } catch (e: any) {
             console.error(e)
-
             setError(
                 String(
                     e?.response?.data?.detail ||
@@ -894,41 +803,28 @@ export default function Chat() {
                 )
             )
         } finally {
-            setDeletingMessageId(
-                null
-            )
+            setDeletingMessageId(null)
         }
     }
 
     const handleSearch = async () => {
-        const query =
-            searchText.trim()
-
-        if (
-            !chatId ||
-            !query
-        ) {
+        const query = searchText.trim()
+        if (!chatId || !query) {
             setSearchResults([])
             setIsSearching(false)
-
             return
         }
-
         try {
             setSearchLoading(true)
             setIsSearching(true)
             setError(null)
-
-            const results =
-                await searchMessages(
-                    chatId,
-                    query
-                )
-
+            const results = await searchMessages(
+                chatId,
+                query
+            )
             setSearchResults(results)
         } catch (e: any) {
             console.error(e)
-
             setError(
                 String(
                     e?.response?.data?.detail ||
@@ -956,129 +852,111 @@ export default function Chat() {
         setIsSearching(false)
     }
 
-    const handleAddParticipant =
-        async () => {
-            const phone =
-                newParticipantPhone.trim()
-
-            if (
-                !phone ||
-                !chatId
-            ) {
-                return
-            }
-
-            try {
-                setError(null)
-
-                await addParticipant(
-                    chatId,
-                    phone
-                )
-
-                const parts =
-                    await getParticipants(
-                        chatId
-                    )
-
-                setParticipants(parts)
-                setNewParticipantPhone('')
-            } catch (e: any) {
-                console.error(e)
-
-                setError(
-                    String(
-                        e?.response?.data
-                            ?.detail ||
-                        e?.response?.data ||
-                        e
-                    )
-                )
-            }
+    const handleAddParticipant = async () => {
+        const phone = newParticipantPhone.trim()
+        if (!phone || !chatId) {
+            return
         }
-
-    const handleRemoveParticipant =
-        async (
-            participant: Participant
-        ) => {
-            const userId =
-                participant.user?.id ||
-                participant.user_id
-
-            if (
-                !chatId ||
-                !userId
-            ) {
-                return
-            }
-
-            try {
-                setError(null)
-
-                await removeParticipant(
-                    chatId,
-                    userId
-                )
-
-                setParticipants(
-                    (prev) =>
-                        prev.filter(
-                            (item) =>
-                                (
-                                    item.user?.id ||
-                                    item.user_id
-                                ) !== userId
+        try {
+            setError(null)
+            await addParticipant(
+                chatId,
+                phone
+            )
+            const parts = await getParticipants(
+                chatId
+            )
+            setParticipants(parts)
+            setOnlineUsers(
+                new Set(
+                    parts
+                        .filter(
+                            (participant) =>
+                                participant.user?.is_online === true
+                        )
+                        .map(
+                            (participant) =>
+                                participant.user?.id ||
+                                participant.user_id
                         )
                 )
-            } catch (e: any) {
-                console.error(e)
-
-                setError(
-                    String(
-                        e?.response?.data
-                            ?.detail ||
-                        e?.response?.data ||
-                        e
-                    )
+            )
+            setNewParticipantPhone('')
+        } catch (e: any) {
+            console.error(e)
+            setError(
+                String(
+                    e?.response?.data?.detail ||
+                    e?.response?.data ||
+                    e
                 )
-            }
+            )
         }
+    }
 
-    const handleLeaveChat =
-        async () => {
-            if (!chatId) {
-                return
-            }
-
-            if (
-                !window.confirm(
-                    'Покинуть группу?'
-                )
-            ) {
-                return
-            }
-
-            try {
-                setError(null)
-
-                await leaveChat(
-                    chatId
-                )
-
-                navigate('/')
-            } catch (e: any) {
-                console.error(e)
-
-                setError(
-                    String(
-                        e?.response?.data
-                            ?.detail ||
-                        e?.response?.data ||
-                        e
-                    )
-                )
-            }
+    const handleRemoveParticipant = async (
+        participant: Participant
+    ) => {
+        const userId =
+            participant.user?.id ||
+            participant.user_id
+        if (!chatId || !userId) {
+            return
         }
+        try {
+            setError(null)
+            await removeParticipant(
+                chatId,
+                userId
+            )
+            setParticipants((prev) =>
+                prev.filter(
+                    (item) =>
+                        (
+                            item.user?.id ||
+                            item.user_id
+                        ) !== userId
+                )
+            )
+            setOnlineUsers((prev) => {
+                const next = new Set(prev)
+                next.delete(userId)
+                return next
+            })
+        } catch (e: any) {
+            console.error(e)
+            setError(
+                String(
+                    e?.response?.data?.detail ||
+                    e?.response?.data ||
+                    e
+                )
+            )
+        }
+    }
+
+    const handleLeaveChat = async () => {
+        if (!chatId) {
+            return
+        }
+        if (!window.confirm('Покинуть группу?')) {
+            return
+        }
+        try {
+            setError(null)
+            await leaveChat(chatId)
+            navigate('/')
+        } catch (e: any) {
+            console.error(e)
+            setError(
+                String(
+                    e?.response?.data?.detail ||
+                    e?.response?.data ||
+                    e
+                )
+            )
+        }
+    }
 
     const handleParticipantClick = (
         userId: string
@@ -1087,7 +965,6 @@ export default function Chat() {
             navigate('/profile')
             return
         }
-
         navigate(`/profile/${userId}`)
     }
 
@@ -1108,26 +985,18 @@ export default function Chat() {
             participant.user?.username ||
             participant.user?.phone_number ||
             '?'
-
-        return name
-            .charAt(0)
-            .toUpperCase()
+        return name.charAt(0).toUpperCase()
     }
 
     const renderAttachment = (
         attachment: MessageAttachment
     ) => {
         const url =
-            attachmentUrls[
-                attachment.id
-            ]
-
+            attachmentUrls[attachment.id]
         if (!url) {
             return (
                 <div
-                    key={
-                        attachment.id
-                    }
+                    key={attachment.id}
                     className="message-attachment"
                 >
                     Загрузка файла...
@@ -1142,23 +1011,16 @@ export default function Chat() {
         ) {
             return (
                 <div
-                    key={
-                        attachment.id
-                    }
+                    key={attachment.id}
                     className="message-attachment"
                 >
                     <img
                         src={url}
-                        alt={
-                            attachment.file_name
-                        }
+                        alt={attachment.file_name}
                         className="chat-image"
                     />
-
                     <div className="attachment-name">
-                        {
-                            attachment.file_name
-                        }
+                        {attachment.file_name}
                     </div>
                 </div>
             )
@@ -1171,9 +1033,7 @@ export default function Chat() {
         ) {
             return (
                 <div
-                    key={
-                        attachment.id
-                    }
+                    key={attachment.id}
                     className="message-attachment"
                 >
                     <video
@@ -1188,11 +1048,8 @@ export default function Chat() {
                             }
                         />
                     </video>
-
                     <div className="attachment-name">
-                        {
-                            attachment.file_name
-                        }
+                        {attachment.file_name}
                     </div>
                 </div>
             )
@@ -1205,9 +1062,7 @@ export default function Chat() {
         ) {
             return (
                 <div
-                    key={
-                        attachment.id
-                    }
+                    key={attachment.id}
                     className="message-attachment"
                 >
                     <audio
@@ -1222,11 +1077,8 @@ export default function Chat() {
                             }
                         />
                     </audio>
-
                     <div className="attachment-name">
-                        {
-                            attachment.file_name
-                        }
+                        {attachment.file_name}
                     </div>
                 </div>
             )
@@ -1234,9 +1086,7 @@ export default function Chat() {
 
         return (
             <div
-                key={
-                    attachment.id
-                }
+                key={attachment.id}
                 className="message-attachment file-attachment"
             >
                 <a
@@ -1246,9 +1096,7 @@ export default function Chat() {
                     }
                 >
                     Скачать:{' '}
-                    {
-                        attachment.file_name
-                    }
+                    {attachment.file_name}
                 </a>
             </div>
         )
@@ -1258,39 +1106,24 @@ export default function Chat() {
         message: Message
     ) => {
         const isMine =
-            message.sender_id ===
-            currentUserId
-
-        const senderName =
-            isMine
-                ? currentUsername ||
-                  'Вы'
-                : message.sender
-                      ?.username ||
-                  message.sender
-                      ?.phone_number ||
-                  message.sender_id
-
+            message.sender_id === currentUserId
+        const senderName = isMine
+            ? currentUsername || 'Вы'
+            : message.sender?.username ||
+              message.sender?.phone_number ||
+              message.sender_id
         const isEditing =
-            editingMessageId ===
-            message.id
-
+            editingMessageId === message.id
         const isDeleting =
-            deletingMessageId ===
-            message.id
-
+            deletingMessageId === message.id
         const edited =
-            isMessageEdited(
-                message
-            )
+            isMessageEdited(message)
 
         return (
             <div
                 key={message.id}
                 className={`message-item ${
-                    isMine
-                        ? 'mine'
-                        : ''
+                    isMine ? 'mine' : ''
                 }`}
             >
                 <div className="message-author">
@@ -1300,23 +1133,15 @@ export default function Chat() {
                 {isEditing ? (
                     <div className="message-edit">
                         <input
-                            value={
-                                editingText
-                            }
-                            onChange={(
-                                e
-                            ) =>
+                            value={editingText}
+                            onChange={(e) =>
                                 setEditingText(
-                                    e.target
-                                        .value
+                                    e.target.value
                                 )
                             }
-                            onKeyDown={(
-                                e
-                            ) => {
+                            onKeyDown={(e) => {
                                 if (
-                                    e.key ===
-                                        'Enter' &&
+                                    e.key === 'Enter' &&
                                     !e.shiftKey
                                 ) {
                                     e.preventDefault()
@@ -1325,7 +1150,6 @@ export default function Chat() {
                             }}
                             autoFocus
                         />
-
                         <div className="message-edit-actions">
                             <button
                                 type="button"
@@ -1340,7 +1164,6 @@ export default function Chat() {
                                     ? 'Сохранение...'
                                     : 'Сохранить'}
                             </button>
-
                             <button
                                 type="button"
                                 onClick={
@@ -1358,10 +1181,7 @@ export default function Chat() {
                     <>
                         {message.text && (
                             <div className="message-bubble">
-                                {
-                                    message.text
-                                }
-
+                                {message.text}
                                 {edited && (
                                     <span className="edited-label">
                                         изменено
@@ -1388,7 +1208,6 @@ export default function Chat() {
                                         Изменить
                                     </button>
                                 )}
-
                                 <button
                                     type="button"
                                     onClick={() =>
@@ -1417,16 +1236,12 @@ export default function Chat() {
             <div className="chat-header">
                 <div className="chat-header-info">
                     <h2>
-                        {chat?.title ||
-                            'Чат'}
+                        {chat?.title || 'Чат'}
                     </h2>
-
                     {isGroupChat && (
                         <p className="chat-meta">
                             Участников:{' '}
-                            {
-                                participants.length
-                            }
+                            {participants.length}
                         </p>
                     )}
                 </div>
@@ -1434,22 +1249,16 @@ export default function Chat() {
                 <div className="chat-search">
                     <input
                         placeholder="Поиск сообщений..."
-                        value={
-                            searchText
-                        }
-                        onChange={(
-                            e
-                        ) =>
+                        value={searchText}
+                        onChange={(e) =>
                             setSearchText(
-                                e.target
-                                    .value
+                                e.target.value
                             )
                         }
                         onKeyDown={
                             handleSearchKeyDown
                         }
                     />
-
                     <button
                         type="button"
                         onClick={
@@ -1463,7 +1272,6 @@ export default function Chat() {
                             ? '...'
                             : 'Найти'}
                     </button>
-
                     {isSearching && (
                         <button
                             type="button"
@@ -1483,14 +1291,12 @@ export default function Chat() {
                         <h3>
                             Результаты поиска
                         </h3>
-
                         <span>
                             {
                                 searchResults.length
                             }
                         </span>
                     </div>
-
                     {searchResults.length ===
                     0 ? (
                         <div className="search-empty">
@@ -1523,7 +1329,6 @@ export default function Chat() {
                                 renderMessage
                             )
                         )}
-
                         <div
                             ref={
                                 messagesEndRef
@@ -1542,7 +1347,6 @@ export default function Chat() {
                             handleImageChange
                         }
                     />
-
                     <input
                         ref={
                             videoInputRef
@@ -1554,7 +1358,6 @@ export default function Chat() {
                             handleVideoChange
                         }
                     />
-
                     <input
                         ref={
                             fileInputRef
@@ -1574,14 +1377,12 @@ export default function Chat() {
                                         selectedFile.name
                                     }
                                 </span>
-
                                 <span className="selected-file-size">
                                     {formatFileSize(
                                         selectedFile.size
                                     )}
                                 </span>
                             </div>
-
                             <button
                                 type="button"
                                 onClick={
@@ -1602,7 +1403,6 @@ export default function Chat() {
                                     recordingTime
                                 )}
                             </span>
-
                             <button
                                 type="button"
                                 onClick={
@@ -1625,7 +1425,6 @@ export default function Chat() {
                             >
                                 Фото
                             </button>
-
                             <button
                                 type="button"
                                 className="attachment-button"
@@ -1635,7 +1434,6 @@ export default function Chat() {
                             >
                                 Видео
                             </button>
-
                             <button
                                 type="button"
                                 className="attachment-button"
@@ -1645,7 +1443,6 @@ export default function Chat() {
                             >
                                 Файл
                             </button>
-
                             {!isRecording ? (
                                 <button
                                     type="button"
@@ -1672,15 +1469,10 @@ export default function Chat() {
                         <input
                             className="message-input"
                             placeholder="Напишите сообщение..."
-                            value={
-                                text
-                            }
-                            onChange={(
-                                e
-                            ) =>
+                            value={text}
+                            onChange={(e) =>
                                 setText(
-                                    e.target
-                                        .value
+                                    e.target.value
                                 )
                             }
                             onKeyDown={
@@ -1722,7 +1514,6 @@ export default function Chat() {
                                 <h3>
                                     Участники
                                 </h3>
-
                                 <span>
                                     {
                                         participants.length
@@ -1738,19 +1529,20 @@ export default function Chat() {
                                         const userId =
                                             participant.user?.id ||
                                             participant.user_id
-
                                         const isCurrent =
                                             userId ===
                                             currentUserId
-
                                         const avatarUrl =
                                             userAvatarUrls[
                                                 userId
                                             ]
-
                                         const name =
                                             getParticipantName(
                                                 participant
+                                            )
+                                        const isOnline =
+                                            onlineUsers.has(
+                                                userId
                                             )
 
                                         return (
@@ -1801,6 +1593,10 @@ export default function Chat() {
                                                                 )}
                                                             </span>
                                                         )}
+
+                                                        {isOnline && (
+                                                            <span className="online-indicator" />
+                                                        )}
                                                     </div>
 
                                                     <div className="participant-details">
@@ -1810,9 +1606,21 @@ export default function Chat() {
                                                             }
                                                         </span>
 
-                                                        {isCurrent && (
+                                                        {isCurrent ? (
                                                             <span className="participant-current">
                                                                 Вы
+                                                            </span>
+                                                        ) : isOnline ? (
+                                                            <span className="participant-status online">
+                                                                В сети
+                                                            </span>
+                                                        ) : (
+                                                            <span className="participant-status offline">
+                                                                {formatLastSeen(
+                                                                    participant
+                                                                        .user
+                                                                        ?.last_seen_at
+                                                                )}
                                                             </span>
                                                         )}
                                                     </div>
@@ -1828,7 +1636,6 @@ export default function Chat() {
                                                             e
                                                         ) => {
                                                             e.stopPropagation()
-
                                                             handleRemoveParticipant(
                                                                 participant
                                                             )
@@ -1849,7 +1656,6 @@ export default function Chat() {
                                 <h3>
                                     Добавить участника
                                 </h3>
-
                                 <div className="participant-add">
                                     <input
                                         placeholder="Номер телефона"
@@ -1860,8 +1666,7 @@ export default function Chat() {
                                             e
                                         ) =>
                                             setNewParticipantPhone(
-                                                e.target
-                                                    .value
+                                                e.target.value
                                             )
                                         }
                                         onKeyDown={(
@@ -1875,7 +1680,6 @@ export default function Chat() {
                                             }
                                         }}
                                     />
-
                                     <button
                                         type="button"
                                         onClick={

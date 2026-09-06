@@ -26,8 +26,8 @@ websocket_route = APIRouter(
 async def get_message_service(session: AsyncSession = Depends(get_session)):
     return MessageService(session=session, redis_service=redis_service)
 
-def get_websocket_service(message_service: MessageService = Depends(get_message_service)):
-    return WebsocketService(manager=manager, message_service=message_service)
+def get_websocket_service(session: AsyncSession = Depends(get_session), message_service: MessageService = Depends(get_message_service)):
+    return WebsocketService(session=session, manager=manager, message_service=message_service)
 
 @websocket_route.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str, websocket_service: WebsocketService = Depends(get_websocket_service)):
@@ -69,4 +69,3 @@ async def websocket_endpoint(websocket: WebSocket, token: str, websocket_service
 
         return 
         
-            

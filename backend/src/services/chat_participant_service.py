@@ -23,7 +23,7 @@ class ChatParticipantService:
 	def __init__(self, sesison: AsyncSession, redis_service: RedisService):
 		self.session = sesison
 		self.user_repo = UserRepository(session=self.session)
-		self.chat_repo = ChatRepository(session=self.session, user_repo=self.user_repo)
+		self.chat_repo = ChatRepository(session=self.session)
 		self.chat_participant_repo = ChatParticipantRepository(session=self.session)
 		self.helper = Helper(session=self.session)
 		self.file_service = FileService()

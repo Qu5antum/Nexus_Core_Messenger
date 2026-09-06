@@ -1,6 +1,7 @@
 from sqlalchemy import select
-from typing import Optional, Dict, Any
+from typing import Optional
 from uuid import UUID
+from datetime import datetime, timezone
 
 from .base_repository import BaseRepository
 from src.database.models import User
@@ -45,3 +46,12 @@ class UserRepository(BaseRepository):
         )
 
         return result.scalar_one_or_none()
+
+    async def update_user_last_seen(self, user_id: UUID) -> None:
+        user = await self.session.get(self.model, user_id)
+
+        if not user:
+            return 
+
+        user.last_seen_at = datetime.now(timezone.utc)
+        await self.session.commit()

@@ -14,10 +14,9 @@ class ChatRepository(BaseRepository):
 	def __init__(
         self,
         session: AsyncSession,
-        user_repo: UserRepository,
     ):
 		super().__init__(session)
-		self.user_repo = user_repo
+		self.user_repo = UserRepository(session=session)
 
 	async def get_chat_by_owner_id(self, owner_id: UUID, chat_id: UUID):
 		result = await self.session.execute(

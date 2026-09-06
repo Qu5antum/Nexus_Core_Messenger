@@ -10,7 +10,6 @@ logger = logging.getLogger("connection_manager")
 class ConnectionManager:
     def __init__(self):
         self.active_connections: dict[UUID, set[WebSocket]] = defaultdict(set)
-        self.last_seen: dict[UUID, datetime] = {}
 
     async def connect(self, user_id: UUID, websocket: WebSocket) -> None:
         """
@@ -27,26 +26,23 @@ class ConnectionManager:
             }
         )
         
-        self.last_seen[user_id] = datetime.now(timezone.utc)
 
-    def disconnect(self, user_id: UUID, websocket: WebSocket) -> None:
+    def disconnect(self, user_id: UUID, websocket: WebSocket) -> bool:
         """
         Remove a websocket connection.
         """
-        if user_id not in self.active_connections:
-            return
+        connections = self.active_connections.get(user_id)
 
-        self.active_connections[user_id].discard(websocket)
+        if not connections:
+            return False
 
-        if not self.active_connections[user_id]:
+        connections.discard(websocket)
+
+        if not connections:
             del self.active_connections[user_id]
-            self.last_seen.pop(user_id, None)
+            return True
 
-    def update_last_seen(self, user_id: UUID) -> None:
-        self.last_seen[user_id] = datetime.now(timezone.utc)
-
-    def get_last_seen(self, user_id: UUID):
-        return self.last_seen.get(user_id)
+        return False
 
     async def send_to_user(self, user_id: UUID, message: dict) -> None:
         """
