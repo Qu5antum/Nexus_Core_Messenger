@@ -30,6 +30,7 @@ import {
     getChat,
     removeParticipant,
     leaveChat,
+    markChatAsRead,
 } from '../api/chats'
 import {
     getUserAvatar,
@@ -84,6 +85,7 @@ type Participant = {
     chat_id: string
     user_id: string
     joined_at: string
+    last_read_at?: string | null
     user?: ParticipantUser | null
 }
 
@@ -99,65 +101,47 @@ export default function Chat() {
     const { chatId = '' } = useParams()
     const navigate = useNavigate()
 
-    const [messages, setMessages] = useState<Message[]>([])
+    const [messages, setMessages] =
+        useState<Message[]>([])
     const [text, setText] = useState('')
     const [selectedFile, setSelectedFile] =
         useState<File | null>(null)
-
     const [chat, setChat] =
         useState<Chat | null>(null)
-
     const [participants, setParticipants] =
         useState<Participant[]>([])
-
     const [newParticipantPhone, setNewParticipantPhone] =
         useState('')
-
     const [loading, setLoading] =
         useState(false)
-
     const [sending, setSending] =
         useState(false)
-
     const [error, setError] =
         useState<string | null>(null)
-
     const [editingMessageId, setEditingMessageId] =
         useState<string | null>(null)
-
     const [editingText, setEditingText] =
         useState('')
-
     const [editingLoading, setEditingLoading] =
         useState(false)
-
     const [deletingMessageId, setDeletingMessageId] =
         useState<string | null>(null)
-
     const [searchText, setSearchText] =
         useState('')
-
     const [searchResults, setSearchResults] =
         useState<Message[]>([])
-
     const [searchLoading, setSearchLoading] =
         useState(false)
-
     const [isSearching, setIsSearching] =
         useState(false)
-
     const [attachmentUrls, setAttachmentUrls] =
         useState<Record<string, string>>({})
-
     const [userAvatarUrls, setUserAvatarUrls] =
         useState<Record<string, string>>({})
-
     const [onlineUsers, setOnlineUsers] =
         useState<Set<string>>(new Set())
-
     const [isRecording, setIsRecording] =
         useState(false)
-
     const [recordingTime, setRecordingTime] =
         useState(0)
 
@@ -198,12 +182,6 @@ export default function Chat() {
         isGroupChat &&
         chat?.owner_id === currentUserId
 
-    /*
-     * =========================
-     * CHAT / PRESENCE HELPERS
-     * =========================
-     */
-
     const getParticipantUserId = (
         participant: Participant
     ) => {
@@ -231,9 +209,7 @@ export default function Chat() {
             participant.user?.phone_number ||
             '?'
 
-        return name
-            .charAt(0)
-            .toUpperCase()
+        return name.charAt(0).toUpperCase()
     }
 
     const setUserOnline = (
@@ -243,7 +219,7 @@ export default function Chat() {
             return
         }
 
-        setOnlineUsers((prev) => {
+        setOnlineUsers(prev => {
             const next = new Set(prev)
             next.add(userId)
             return next
@@ -257,7 +233,7 @@ export default function Chat() {
             return
         }
 
-        setOnlineUsers((prev) => {
+        setOnlineUsers(prev => {
             const next = new Set(prev)
             next.delete(userId)
             return next
@@ -269,8 +245,8 @@ export default function Chat() {
         isOnline: boolean,
         lastSeenAt?: string | null
     ) => {
-        setParticipants((prev) =>
-            prev.map((participant) => {
+        setParticipants(prev =>
+            prev.map(participant => {
                 const participantUserId =
                     getParticipantUserId(
                         participant
@@ -290,8 +266,7 @@ export default function Chat() {
                             id: userId,
                         }),
                         is_online: isOnline,
-                        ...(lastSeenAt !==
-                        undefined
+                        ...(lastSeenAt !== undefined
                             ? {
                                   last_seen_at:
                                       lastSeenAt,
@@ -310,14 +285,9 @@ export default function Chat() {
             return 'Не был в сети'
         }
 
-        const date =
-            new Date(lastSeenAt)
+        const date = new Date(lastSeenAt)
 
-        if (
-            Number.isNaN(
-                date.getTime()
-            )
-        ) {
+        if (Number.isNaN(date.getTime())) {
             return 'Не был в сети'
         }
 
@@ -333,9 +303,7 @@ export default function Chat() {
 
         const diffMinutes =
             Math.floor(
-                diffMs /
-                    1000 /
-                    60
+                diffMs / 1000 / 60
             )
 
         if (diffMinutes < 1) {
@@ -378,17 +346,13 @@ export default function Chat() {
         )
     }
 
-    /*
-     * Собеседник в личном чате.
-     */
     const privateParticipant =
         !isGroupChat
             ? participants.find(
-                  (participant) =>
+                  participant =>
                       getParticipantUserId(
                           participant
-                      ) !==
-                      currentUserId
+                      ) !== currentUserId
               )
             : null
 
@@ -407,33 +371,21 @@ export default function Chat() {
 
     const privateUserOnline =
         privateUserId
-            ? onlineUsers.has(
-                  privateUserId
-              ) ||
-              privateUser?.is_online ===
-                  true
+            ? onlineUsers.has(privateUserId) ||
+              privateUser?.is_online === true
             : false
 
     const privateUserLastSeen =
-        privateUser?.last_seen_at ||
-        null
-
-    /*
-     * =========================
-     * UTILITY
-     * =========================
-     */
+        privateUser?.last_seen_at || null
 
     const scrollToBottom = (
         smooth = true
     ) => {
-        messagesEndRef.current?.scrollIntoView(
-            {
-                behavior: smooth
-                    ? 'smooth'
-                    : 'auto',
-            }
-        )
+        messagesEndRef.current?.scrollIntoView({
+            behavior: smooth
+                ? 'smooth'
+                : 'auto',
+        })
     }
 
     const formatFileSize = (
@@ -461,33 +413,24 @@ export default function Chat() {
         return `${(
             bytes /
             Math.pow(1024, index)
-        ).toFixed(2)} ${
-            sizes[index]
-        }`
+        ).toFixed(2)} ${sizes[index]}`
     }
 
     const formatRecordingTime = (
         seconds: number
     ) => {
         const minutes =
-            Math.floor(
-                seconds / 60
-            )
+            Math.floor(seconds / 60)
 
         const remainingSeconds =
             seconds % 60
 
-        return `${String(
-            minutes
-        ).padStart(
+        return `${String(minutes).padStart(
             2,
             '0'
         )}:${String(
             remainingSeconds
-        ).padStart(
-            2,
-            '0'
-        )}`
+        ).padStart(2, '0')}`
     }
 
     const isMessageEdited = (
@@ -517,16 +460,91 @@ export default function Chat() {
             return false
         }
 
-        return (
-            editedAt !== sentAt
-        )
+        return editedAt !== sentAt
     }
 
     /*
-     * =========================
-     * LOAD CHAT
-     * =========================
+     * Проверяем, прочитано ли сообщение.
+     *
+     * Для своего сообщения:
+     * - сам отправитель считается прочитавшим его;
+     * - в личном чате ждём last_read_at собеседника;
+     * - в группе ждём last_read_at всех остальных участников.
      */
+    const isMessageRead = (
+        message: Message
+    ) => {
+        if (
+            message.sender_id !==
+            currentUserId
+        ) {
+            return false
+        }
+
+        const messageTime =
+            new Date(
+                message.sent_at
+            ).getTime()
+
+        if (Number.isNaN(messageTime)) {
+            return false
+        }
+
+        const otherParticipants =
+            participants.filter(
+                participant =>
+                    getParticipantUserId(
+                        participant
+                    ) !== currentUserId
+            )
+
+        if (
+            otherParticipants.length ===
+            0
+        ) {
+            return true
+        }
+
+        return otherParticipants.every(
+            participant => {
+                if (!participant.last_read_at) {
+                    return false
+                }
+
+                const lastReadTime =
+                    new Date(
+                        participant.last_read_at
+                    ).getTime()
+
+                if (
+                    Number.isNaN(
+                        lastReadTime
+                    )
+                ) {
+                    return false
+                }
+
+                return (
+                    lastReadTime >=
+                    messageTime
+                )
+            }
+        )
+    }
+
+    const getReadText = (
+        message: Message
+    ) => {
+        if (!isMessageRead(message)) {
+            return 'Не прочитано'
+        }
+
+        if (isGroupChat) {
+            return 'Прочитано всеми'
+        }
+
+        return 'Прочитано'
+    }
 
     useEffect(() => {
         if (!chatId) {
@@ -540,6 +558,17 @@ export default function Chat() {
                 setLoading(true)
                 setError(null)
 
+                /*
+                 * Сначала отмечаем чат прочитанным.
+                 * Поэтому последующий getParticipants()
+                 * уже вернёт актуальный last_read_at.
+                 */
+                await markChatAsRead(chatId)
+
+                if (cancelled) {
+                    return
+                }
+
                 const [
                     chatInfo,
                     msgs,
@@ -547,9 +576,7 @@ export default function Chat() {
                 ] = await Promise.all([
                     getChat(chatId),
                     getMessages(chatId),
-                    getParticipants(
-                        chatId
-                    ),
+                    getParticipants(chatId),
                 ])
 
                 if (cancelled) {
@@ -558,20 +585,13 @@ export default function Chat() {
 
                 setChat(chatInfo)
                 setMessages(msgs)
-                setParticipants(
-                    parts
-                )
+                setParticipants(parts)
 
-                /*
-                 * Инициализируем onlineUsers
-                 * из данных backend.
-                 */
                 const onlineIds =
                     parts
                         .filter(
-                            (participant) =>
-                                participant
-                                    .user
+                            participant =>
+                                participant.user
                                     ?.is_online ===
                                 true
                         )
@@ -581,16 +601,12 @@ export default function Chat() {
                         .filter(Boolean)
 
                 setOnlineUsers(
-                    new Set(
-                        onlineIds
-                    )
+                    new Set(onlineIds)
                 )
 
                 setTimeout(() => {
                     if (!cancelled) {
-                        scrollToBottom(
-                            false
-                        )
+                        scrollToBottom(false)
                     }
                 }, 100)
             } catch (e: any) {
@@ -602,11 +618,8 @@ export default function Chat() {
 
                 setError(
                     String(
-                        e?.response
-                            ?.data
-                            ?.detail ||
-                            e?.response
-                                ?.data ||
+                        e?.response?.data?.detail ||
+                            e?.response?.data ||
                             e
                     )
                 )
@@ -621,6 +634,68 @@ export default function Chat() {
 
         return () => {
             cancelled = true
+        }
+    }, [chatId])
+
+     /*
+     * Пока нет WebSocket, обновляем
+     * last_read_at участников периодически.
+     */
+    useEffect(() => {
+        if (!chatId) {
+            return
+        }
+
+        let cancelled = false
+
+        const refreshParticipants = async () => {
+            try {
+                const parts =
+                    await getParticipants(chatId)
+
+                if (cancelled) {
+                    return
+                }
+
+                setParticipants(parts)
+
+                const onlineIds =
+                    parts
+                        .filter(
+                            participant =>
+                                participant.user
+                                    ?.is_online ===
+                                true
+                        )
+                        .map(
+                            getParticipantUserId
+                        )
+                        .filter(Boolean)
+
+                setOnlineUsers(
+                    new Set(onlineIds)
+                )
+            } catch (e) {
+                console.error(
+                    'Participants refresh error:',
+                    e
+                )
+            }
+        }
+
+        const intervalId =
+            window.setInterval(
+                () => {
+                    void refreshParticipants()
+                },
+                5000
+            )
+
+        return () => {
+            cancelled = true
+            window.clearInterval(
+                intervalId
+            )
         }
     }, [chatId])
 
@@ -640,118 +715,107 @@ export default function Chat() {
 
         let cancelled = false
 
-        const loadAttachments =
-            async () => {
-                const allAttachments =
-                    messages.flatMap(
-                        (message) =>
-                            message.attachments ||
-                            []
-                    )
+        const loadAttachments = async () => {
+            const allAttachments =
+                messages.flatMap(
+                    message =>
+                        message.attachments || []
+                )
 
-                const uniqueAttachments =
-                    Array.from(
-                        new Map(
-                            allAttachments.map(
-                                (
-                                    attachment
-                                ) => [
-                                    attachment.id,
-                                    attachment,
-                                ]
-                            )
-                        ).values()
-                    )
-
-                const attachmentsToLoad =
-                    uniqueAttachments.filter(
-                        (attachment) =>
-                            !attachmentUrls[
-                                attachment.id
+            const uniqueAttachments =
+                Array.from(
+                    new Map(
+                        allAttachments.map(
+                            attachment => [
+                                attachment.id,
+                                attachment,
                             ]
-                    )
+                        )
+                    ).values()
+                )
 
-                if (
-                    attachmentsToLoad.length ===
-                    0
-                ) {
-                    return
-                }
+            const attachmentsToLoad =
+                uniqueAttachments.filter(
+                    attachment =>
+                        !attachmentUrls[
+                            attachment.id
+                        ]
+                )
 
-                const results =
-                    await Promise.all(
-                        attachmentsToLoad.map(
-                            async (
-                                attachment
-                            ) => {
-                                try {
-                                    const url =
-                                        await getAttachment(
-                                            chatId,
-                                            attachment.id
-                                        )
+            if (
+                attachmentsToLoad.length ===
+                0
+            ) {
+                return
+            }
 
-                                    return {
-                                        id: attachment.id,
-                                        url,
-                                    }
-                                } catch (e) {
-                                    console.error(
-                                        'Attachment load error:',
-                                        e
+            const results =
+                await Promise.all(
+                    attachmentsToLoad.map(
+                        async attachment => {
+                            try {
+                                const url =
+                                    await getAttachment(
+                                        chatId,
+                                        attachment.id
                                     )
 
-                                    return null
+                                return {
+                                    id: attachment.id,
+                                    url,
                                 }
+                            } catch (e) {
+                                console.error(
+                                    'Attachment load error:',
+                                    e
+                                )
+
+                                return null
                             }
-                        )
-                    )
-
-                if (cancelled) {
-                    return
-                }
-
-                const loadedUrls =
-                    results.filter(
-                        (
-                            result
-                        ): result is {
-                            id: string
-                            url: string
-                        } =>
-                            result !==
-                                null &&
-                            typeof result.url ===
-                                'string'
-                    )
-
-                if (
-                    loadedUrls.length ===
-                    0
-                ) {
-                    return
-                }
-
-                setAttachmentUrls(
-                    (prev) => {
-                        const next = {
-                            ...prev,
                         }
+                    )
+                )
 
-                        loadedUrls.forEach(
-                            ({
-                                id,
-                                url,
-                            }) => {
-                                next[id] =
-                                    url
-                            }
-                        )
+            if (cancelled) {
+                return
+            }
 
-                        return next
+            const loadedUrls =
+                results.filter(
+                    (
+                        result
+                    ): result is {
+                        id: string
+                        url: string
+                    } =>
+                        result !== null &&
+                        typeof result.url ===
+                            'string'
+                )
+
+            if (
+                loadedUrls.length === 0
+            ) {
+                return
+            }
+
+            setAttachmentUrls(prev => {
+                const next = {
+                    ...prev,
+                }
+
+                loadedUrls.forEach(
+                    ({
+                        id,
+                        url,
+                    }) => {
+                        next[id] = url
                     }
                 )
-            }
+
+                return next
+            })
+        }
 
         void loadAttachments()
 
@@ -764,154 +828,126 @@ export default function Chat() {
         attachmentUrls,
     ])
 
-    /*
-     * Освобождаем Blob URLs.
-     */
     useEffect(() => {
         return () => {
             Object.values(
                 attachmentUrls
-            ).forEach((url) => {
+            ).forEach(url => {
                 if (
-                    url.startsWith(
-                        'blob:'
-                    )
+                    url.startsWith('blob:')
                 ) {
-                    URL.revokeObjectURL(
-                        url
-                    )
+                    URL.revokeObjectURL(url)
                 }
             })
         }
     }, [attachmentUrls])
 
-    /*
-     * =========================
-     * LOAD USER AVATARS
-     * =========================
-     */
-
     useEffect(() => {
-        if (
-            participants.length ===
-            0
-        ) {
+        if (participants.length === 0) {
             return
         }
 
         let cancelled = false
 
-        const loadUserAvatars =
-            async () => {
-                const userIds =
-                    Array.from(
-                        new Set(
-                            participants
-                                .map(
-                                    getParticipantUserId
-                                )
-                                .filter(
-                                    Boolean
-                                )
-                        )
+        const loadUserAvatars = async () => {
+            const userIds =
+                Array.from(
+                    new Set(
+                        participants
+                            .map(
+                                getParticipantUserId
+                            )
+                            .filter(Boolean)
                     )
+                )
 
-                const usersToLoad =
-                    userIds.filter(
-                        (userId) =>
-                            !userAvatarUrls[
-                                userId
-                            ]
-                    )
+            const usersToLoad =
+                userIds.filter(
+                    userId =>
+                        !userAvatarUrls[
+                            userId
+                        ]
+                )
 
-                if (
-                    usersToLoad.length ===
-                    0
-                ) {
-                    return
-                }
+            if (
+                usersToLoad.length === 0
+            ) {
+                return
+            }
 
-                const results =
-                    await Promise.all(
-                        usersToLoad.map(
-                            async (
-                                userId
-                            ) => {
-                                try {
-                                    const url =
-                                        await getUserAvatar(
-                                            userId
-                                        )
-
-                                    if (
-                                        typeof url !==
-                                        'string'
-                                    ) {
-                                        return null
-                                    }
-
-                                    return {
-                                        userId,
-                                        url,
-                                    }
-                                } catch (e) {
-                                    console.error(
-                                        `Avatar load error for user ${userId}:`,
-                                        e
+            const results =
+                await Promise.all(
+                    usersToLoad.map(
+                        async userId => {
+                            try {
+                                const url =
+                                    await getUserAvatar(
+                                        userId
                                     )
 
+                                if (
+                                    typeof url !==
+                                    'string'
+                                ) {
                                     return null
                                 }
+
+                                return {
+                                    userId,
+                                    url,
+                                }
+                            } catch (e) {
+                                console.error(
+                                    `Avatar load error for user ${userId}:`,
+                                    e
+                                )
+
+                                return null
                             }
-                        )
-                    )
-
-                if (cancelled) {
-                    return
-                }
-
-                const loadedAvatars =
-                    results.filter(
-                        (
-                            result
-                        ): result is {
-                            userId: string
-                            url: string
-                        } =>
-                            result !==
-                                null &&
-                            Boolean(
-                                result.url
-                            )
-                    )
-
-                if (
-                    loadedAvatars.length ===
-                    0
-                ) {
-                    return
-                }
-
-                setUserAvatarUrls(
-                    (prev) => {
-                        const next = {
-                            ...prev,
                         }
+                    )
+                )
 
-                        loadedAvatars.forEach(
-                            ({
-                                userId,
-                                url,
-                            }) => {
-                                next[userId] =
-                                    url
-                            }
-                        )
+            if (cancelled) {
+                return
+            }
 
-                        return next
+            const loadedAvatars =
+                results.filter(
+                    (
+                        result
+                    ): result is {
+                        userId: string
+                        url: string
+                    } =>
+                        result !== null &&
+                        Boolean(result.url)
+                )
+
+            if (
+                loadedAvatars.length ===
+                0
+            ) {
+                return
+            }
+
+            setUserAvatarUrls(prev => {
+                const next = {
+                    ...prev,
+                }
+
+                loadedAvatars.forEach(
+                    ({
+                        userId,
+                        url,
+                    }) => {
+                        next[userId] = url
                     }
                 )
-            }
+
+                return next
+            })
+        }
 
         void loadUserAvatars()
 
@@ -927,25 +963,15 @@ export default function Chat() {
         return () => {
             Object.values(
                 userAvatarUrls
-            ).forEach((url) => {
+            ).forEach(url => {
                 if (
-                    url.startsWith(
-                        'blob:'
-                    )
+                    url.startsWith('blob:')
                 ) {
-                    URL.revokeObjectURL(
-                        url
-                    )
+                    URL.revokeObjectURL(url)
                 }
             })
         }
     }, [userAvatarUrls])
-
-    /*
-     * =========================
-     * WEBSOCKET / PRESENCE
-     * =========================
-     */
 
     useEffect(() => {
         if (!chatId) {
@@ -974,18 +1000,13 @@ export default function Chat() {
             )
         }
 
-        ws.onmessage = (
-            event
-        ) => {
+        ws.onmessage = event => {
             try {
                 const payload =
                     JSON.parse(
                         event.data
                     ) as WebSocketPayload
 
-                /*
-                 * Пользователь вошёл в сеть.
-                 */
                 if (
                     payload.type ===
                     'user.online'
@@ -1000,9 +1021,7 @@ export default function Chat() {
                         return
                     }
 
-                    setUserOnline(
-                        userId
-                    )
+                    setUserOnline(userId)
 
                     updateParticipantOnlineStatus(
                         userId,
@@ -1012,9 +1031,6 @@ export default function Chat() {
                     return
                 }
 
-                /*
-                 * Пользователь вышел из сети.
-                 */
                 if (
                     payload.type ===
                     'user.offline'
@@ -1033,9 +1049,7 @@ export default function Chat() {
                         payload.last_seen_at ||
                         null
 
-                    setUserOffline(
-                        userId
-                    )
+                    setUserOffline(userId)
 
                     updateParticipantOnlineStatus(
                         userId,
@@ -1046,16 +1060,12 @@ export default function Chat() {
                     return
                 }
 
-                /*
-                 * Новое сообщение.
-                 */
                 if (
                     payload.type ===
                         'message_created' &&
                     String(
                         payload.chat_id
-                    ) ===
-                        String(chatId)
+                    ) === String(chatId)
                 ) {
                     const newMessage =
                         payload.data
@@ -1067,27 +1077,23 @@ export default function Chat() {
                         return
                     }
 
-                    setMessages(
-                        (prev) => {
-                            const exists =
-                                prev.some(
-                                    (
-                                        message
-                                    ) =>
-                                        message.id ===
-                                        newMessage.id
-                                )
+                    setMessages(prev => {
+                        const exists =
+                            prev.some(
+                                message =>
+                                    message.id ===
+                                    newMessage.id
+                            )
 
-                            if (exists) {
-                                return prev
-                            }
-
-                            return [
-                                ...prev,
-                                newMessage,
-                            ]
+                        if (exists) {
+                            return prev
                         }
-                    )
+
+                        return [
+                            ...prev,
+                            newMessage,
+                        ]
+                    })
 
                     setTimeout(() => {
                         scrollToBottom()
@@ -1101,9 +1107,7 @@ export default function Chat() {
             }
         }
 
-        ws.onerror = (
-            event
-        ) => {
+        ws.onerror = event => {
             console.error(
                 'WebSocket error:',
                 event
@@ -1129,17 +1133,11 @@ export default function Chat() {
             if (
                 wsRef.current === ws
             ) {
-                wsRef.current =
-                    null
+                wsRef.current = null
             }
         }
     }, [chatId])
 
-    /*
-     * =========================
-     * FILES
-     * =========================
-     */
 
     const handleSelectFile = (
         file: File | undefined
@@ -1215,13 +1213,6 @@ export default function Chat() {
             setText('')
             setSelectedFile(null)
 
-            /*
-             * Если есть файл —
-             * используем REST.
-             *
-             * Текущий WS send_message
-             * поддерживает только text.
-             */
             const data =
                 await sendMessage(
                     chatId,
@@ -1231,27 +1222,23 @@ export default function Chat() {
                         undefined
                 )
 
-            setMessages(
-                (prev) => {
-                    const exists =
-                        prev.some(
-                            (
-                                message
-                            ) =>
-                                message.id ===
-                                data.id
-                        )
+            setMessages(prev => {
+                const exists =
+                    prev.some(
+                        message =>
+                            message.id ===
+                            data.id
+                    )
 
-                    if (exists) {
-                        return prev
-                    }
-
-                    return [
-                        ...prev,
-                        data,
-                    ]
+                if (exists) {
+                    return prev
                 }
-            )
+
+                return [
+                    ...prev,
+                    data,
+                ]
+            })
 
             setTimeout(() => {
                 scrollToBottom()
@@ -1261,11 +1248,8 @@ export default function Chat() {
 
             setError(
                 String(
-                    e?.response
-                        ?.data
-                        ?.detail ||
-                        e?.response
-                            ?.data ||
+                    e?.response?.data?.detail ||
+                        e?.response?.data ||
                         e
                 )
             )
@@ -1285,12 +1269,6 @@ export default function Chat() {
             void handleSend()
         }
     }
-
-    /*
-     * =========================
-     * VOICE RECORDING
-     * =========================
-     */
 
     const startRecording =
         async () => {
@@ -1313,10 +1291,10 @@ export default function Chat() {
                     []
 
                 recorder.ondataavailable =
-                    (event) => {
+                    event => {
                         if (
-                            event.data
-                                .size > 0
+                            event.data.size >
+                            0
                         ) {
                             recordingChunksRef.current.push(
                                 event.data
@@ -1324,80 +1302,64 @@ export default function Chat() {
                         }
                     }
 
-                recorder.onstop =
-                    () => {
-                        const audioBlob =
-                            new Blob(
-                                recordingChunksRef.current,
-                                {
-                                    type:
-                                        recorder.mimeType ||
-                                        'audio/webm',
-                                }
-                            )
-
-                        const extension =
-                            audioBlob.type.includes(
-                                'ogg'
-                            )
-                                ? 'ogg'
-                                : 'webm'
-
-                        const audioFile =
-                            new File(
-                                [audioBlob],
-                                `voice-${Date.now()}.${extension}`,
-                                {
-                                    type:
-                                        audioBlob.type,
-                                }
-                            )
-
-                        setSelectedFile(
-                            audioFile
+                recorder.onstop = () => {
+                    const audioBlob =
+                        new Blob(
+                            recordingChunksRef.current,
+                            {
+                                type:
+                                    recorder.mimeType ||
+                                    'audio/webm',
+                            }
                         )
 
-                        stream
-                            .getTracks()
-                            .forEach(
-                                (
-                                    track
-                                ) =>
-                                    track.stop()
-                            )
+                    const extension =
+                        audioBlob.type.includes(
+                            'ogg'
+                        )
+                            ? 'ogg'
+                            : 'webm'
 
-                        setIsRecording(
-                            false
+                    const audioFile =
+                        new File(
+                            [audioBlob],
+                            `voice-${Date.now()}.${extension}`,
+                            {
+                                type:
+                                    audioBlob.type,
+                            }
                         )
 
-                        setRecordingTime(
-                            0
+                    setSelectedFile(
+                        audioFile
+                    )
+
+                    stream
+                        .getTracks()
+                        .forEach(track =>
+                            track.stop()
                         )
 
-                        mediaRecorderRef.current =
-                            null
-                    }
+                    setIsRecording(false)
+                    setRecordingTime(0)
+                    mediaRecorderRef.current =
+                        null
+                }
 
                 recorder.start()
 
                 mediaRecorderRef.current =
                     recorder
 
-                setIsRecording(
-                    true
-                )
-
-                setRecordingTime(
-                    0
-                )
+                setIsRecording(true)
+                setRecordingTime(0)
 
                 recordingTimerRef.current =
                     window.setInterval(
                         () => {
                             setRecordingTime(
-                                (prev) =>
-                                    prev +
-                                    1
+                                prev =>
+                                    prev + 1
                             )
                         },
                         1000
@@ -1415,8 +1377,7 @@ export default function Chat() {
         if (
             mediaRecorderRef.current &&
             mediaRecorderRef.current
-                .state !==
-                'inactive'
+                .state !== 'inactive'
         ) {
             mediaRecorderRef.current.stop()
         }
@@ -1448,19 +1409,13 @@ export default function Chat() {
             if (
                 mediaRecorderRef.current &&
                 mediaRecorderRef.current
-                    .state !==
-                    'inactive'
+                    .state !== 'inactive'
             ) {
                 mediaRecorderRef.current.stop()
             }
         }
     }, [])
 
-    /*
-     * =========================
-     * EDIT MESSAGE
-     * =========================
-     */
 
     const handleStartEdit = (
         message: Message
@@ -1486,10 +1441,7 @@ export default function Chat() {
 
     const handleCancelEdit =
         () => {
-            setEditingMessageId(
-                null
-            )
-
+            setEditingMessageId(null)
             setEditingText('')
         }
 
@@ -1513,10 +1465,7 @@ export default function Chat() {
             }
 
             try {
-                setEditingLoading(
-                    true
-                )
-
+                setEditingLoading(true)
                 setError(null)
 
                 const updatedMessage =
@@ -1526,30 +1475,22 @@ export default function Chat() {
                         newText
                     )
 
-                setMessages(
-                    (prev) =>
-                        prev.map(
-                            (
-                                message
-                            ) =>
-                                message.id ===
-                                editingMessageId
-                                    ? updatedMessage
-                                    : message
-                        )
+                setMessages(prev =>
+                    prev.map(message =>
+                        message.id ===
+                        editingMessageId
+                            ? updatedMessage
+                            : message
+                    )
                 )
 
-                setSearchResults(
-                    (prev) =>
-                        prev.map(
-                            (
-                                message
-                            ) =>
-                                message.id ===
-                                editingMessageId
-                                    ? updatedMessage
-                                    : message
-                        )
+                setSearchResults(prev =>
+                    prev.map(message =>
+                        message.id ===
+                        editingMessageId
+                            ? updatedMessage
+                            : message
+                    )
                 )
 
                 handleCancelEdit()
@@ -1558,26 +1499,15 @@ export default function Chat() {
 
                 setError(
                     String(
-                        e?.response
-                            ?.data
-                            ?.detail ||
-                            e?.response
-                                ?.data ||
+                        e?.response?.data?.detail ||
+                            e?.response?.data ||
                             e
                     )
                 )
             } finally {
-                setEditingLoading(
-                    false
-                )
+                setEditingLoading(false)
             }
         }
-
-    /*
-     * =========================
-     * DELETE MESSAGE
-     * =========================
-     */
 
     const handleDeleteMessage =
         async (
@@ -1607,52 +1537,35 @@ export default function Chat() {
                     messageId
                 )
 
-                setMessages(
-                    (prev) =>
-                        prev.filter(
-                            (
-                                message
-                            ) =>
-                                message.id !==
-                                messageId
-                        )
+                setMessages(prev =>
+                    prev.filter(
+                        message =>
+                            message.id !==
+                            messageId
+                    )
                 )
 
-                setSearchResults(
-                    (prev) =>
-                        prev.filter(
-                            (
-                                message
-                            ) =>
-                                message.id !==
-                                messageId
-                        )
+                setSearchResults(prev =>
+                    prev.filter(
+                        message =>
+                            message.id !==
+                            messageId
+                    )
                 )
             } catch (e: any) {
                 console.error(e)
 
                 setError(
                     String(
-                        e?.response
-                            ?.data
-                            ?.detail ||
-                            e?.response
-                                ?.data ||
+                        e?.response?.data?.detail ||
+                            e?.response?.data ||
                             e
                     )
                 )
             } finally {
-                setDeletingMessageId(
-                    null
-                )
+                setDeletingMessageId(null)
             }
         }
-
-    /*
-     * =========================
-     * SEARCH
-     * =========================
-     */
 
     const handleSearch =
         async () => {
@@ -1663,26 +1576,14 @@ export default function Chat() {
                 !chatId ||
                 !query
             ) {
-                setSearchResults(
-                    []
-                )
-
-                setIsSearching(
-                    false
-                )
-
+                setSearchResults([])
+                setIsSearching(false)
                 return
             }
 
             try {
-                setSearchLoading(
-                    true
-                )
-
-                setIsSearching(
-                    true
-                )
-
+                setSearchLoading(true)
+                setIsSearching(true)
                 setError(null)
 
                 const results =
@@ -1699,27 +1600,20 @@ export default function Chat() {
 
                 setError(
                     String(
-                        e?.response
-                            ?.data
-                            ?.detail ||
-                            e?.response
-                                ?.data ||
+                        e?.response?.data?.detail ||
+                            e?.response?.data ||
                             e
                     )
                 )
             } finally {
-                setSearchLoading(
-                    false
-                )
+                setSearchLoading(false)
             }
         }
 
     const handleSearchKeyDown = (
         e: KeyboardEvent<HTMLInputElement>
     ) => {
-        if (
-            e.key === 'Enter'
-        ) {
+        if (e.key === 'Enter') {
             e.preventDefault()
             void handleSearch()
         }
@@ -1728,19 +1622,9 @@ export default function Chat() {
     const handleClearSearch =
         () => {
             setSearchText('')
-            setSearchResults(
-                []
-            )
-            setIsSearching(
-                false
-            )
+            setSearchResults([])
+            setIsSearching(false)
         }
-
-    /*
-     * =========================
-     * GROUP PARTICIPANTS
-     * =========================
-     */
 
     const handleAddParticipant =
         async () => {
@@ -1767,44 +1651,32 @@ export default function Chat() {
                         chatId
                     )
 
-                setParticipants(
-                    parts
-                )
+                setParticipants(parts)
 
                 setOnlineUsers(
                     new Set(
                         parts
                             .filter(
-                                (
-                                    participant
-                                ) =>
-                                    participant
-                                        .user
+                                participant =>
+                                    participant.user
                                         ?.is_online ===
                                     true
                             )
                             .map(
                                 getParticipantUserId
                             )
-                            .filter(
-                                Boolean
-                            )
+                            .filter(Boolean)
                     )
                 )
 
-                setNewParticipantPhone(
-                    ''
-                )
+                setNewParticipantPhone('')
             } catch (e: any) {
                 console.error(e)
 
                 setError(
                     String(
-                        e?.response
-                            ?.data
-                            ?.detail ||
-                            e?.response
-                                ?.data ||
+                        e?.response?.data?.detail ||
+                            e?.response?.data ||
                             e
                     )
                 )
@@ -1835,43 +1707,30 @@ export default function Chat() {
                     userId
                 )
 
-                setParticipants(
-                    (prev) =>
-                        prev.filter(
-                            (
+                setParticipants(prev =>
+                    prev.filter(
+                        item =>
+                            getParticipantUserId(
                                 item
-                            ) =>
-                                getParticipantUserId(
-                                    item
-                                ) !==
-                                userId
-                        )
+                            ) !== userId
+                    )
                 )
 
-                setOnlineUsers(
-                    (prev) => {
-                        const next =
-                            new Set(
-                                prev
-                            )
+                setOnlineUsers(prev => {
+                    const next =
+                        new Set(prev)
 
-                        next.delete(
-                            userId
-                        )
+                    next.delete(userId)
 
-                        return next
-                    }
-                )
+                    return next
+                })
             } catch (e: any) {
                 console.error(e)
 
                 setError(
                     String(
-                        e?.response
-                            ?.data
-                            ?.detail ||
-                            e?.response
-                                ?.data ||
+                        e?.response?.data?.detail ||
+                            e?.response?.data ||
                             e
                     )
                 )
@@ -1895,9 +1754,7 @@ export default function Chat() {
             try {
                 setError(null)
 
-                await leaveChat(
-                    chatId
-                )
+                await leaveChat(chatId)
 
                 navigate('/')
             } catch (e: any) {
@@ -1905,11 +1762,8 @@ export default function Chat() {
 
                 setError(
                     String(
-                        e?.response
-                            ?.data
-                            ?.detail ||
-                            e?.response
-                                ?.data ||
+                        e?.response?.data?.detail ||
+                            e?.response?.data ||
                             e
                     )
                 )
@@ -1923,9 +1777,7 @@ export default function Chat() {
             userId ===
             currentUserId
         ) {
-            navigate(
-                '/profile'
-            )
+            navigate('/profile')
             return
         }
 
@@ -1933,12 +1785,6 @@ export default function Chat() {
             `/profile/${userId}`
         )
     }
-
-    /*
-     * =========================
-     * ATTACHMENTS
-     * =========================
-     */
 
     const renderAttachment = (
         attachment: MessageAttachment
@@ -1951,9 +1797,7 @@ export default function Chat() {
         if (!url) {
             return (
                 <div
-                    key={
-                        attachment.id
-                    }
+                    key={attachment.id}
                     className="message-attachment"
                 >
                     Загрузка файла...
@@ -1968,9 +1812,7 @@ export default function Chat() {
         ) {
             return (
                 <div
-                    key={
-                        attachment.id
-                    }
+                    key={attachment.id}
                     className="message-attachment"
                 >
                     <img
@@ -1997,9 +1839,7 @@ export default function Chat() {
         ) {
             return (
                 <div
-                    key={
-                        attachment.id
-                    }
+                    key={attachment.id}
                     className="message-attachment"
                 >
                     <video
@@ -2031,9 +1871,7 @@ export default function Chat() {
         ) {
             return (
                 <div
-                    key={
-                        attachment.id
-                    }
+                    key={attachment.id}
                     className="message-attachment"
                 >
                     <audio
@@ -2060,9 +1898,7 @@ export default function Chat() {
 
         return (
             <div
-                key={
-                    attachment.id
-                }
+                key={attachment.id}
                 className="message-attachment file-attachment"
             >
                 <a
@@ -2080,12 +1916,6 @@ export default function Chat() {
         )
     }
 
-    /*
-     * =========================
-     * MESSAGE RENDER
-     * =========================
-     */
-
     const renderMessage = (
         message: Message
     ) => {
@@ -2095,10 +1925,8 @@ export default function Chat() {
 
         const senderName =
             isMine
-                ? currentUsername ||
-                  'Вы'
-                : message.sender
-                      ?.username ||
+                ? currentUsername || 'Вы'
+                : message.sender?.username ||
                   message.sender
                       ?.phone_number ||
                   message.sender_id
@@ -2112,17 +1940,17 @@ export default function Chat() {
             message.id
 
         const edited =
-            isMessageEdited(
-                message
-            )
+            isMessageEdited(message)
+
+        const read =
+            isMine &&
+            isMessageRead(message)
 
         return (
             <div
                 key={message.id}
                 className={`message-item ${
-                    isMine
-                        ? 'mine'
-                        : ''
+                    isMine ? 'mine' : ''
                 }`}
             >
                 <div className="message-author">
@@ -2135,23 +1963,18 @@ export default function Chat() {
                             value={
                                 editingText
                             }
-                            onChange={(
-                                e
-                            ) =>
+                            onChange={e =>
                                 setEditingText(
                                     e.target.value
                                 )
                             }
-                            onKeyDown={(
-                                e
-                            ) => {
+                            onKeyDown={e => {
                                 if (
                                     e.key ===
                                         'Enter' &&
                                     !e.shiftKey
                                 ) {
                                     e.preventDefault()
-
                                     void handleSaveEdit()
                                 }
                             }}
@@ -2207,6 +2030,24 @@ export default function Chat() {
                         )}
 
                         {isMine && (
+                            <div className="message-meta">
+                                <span
+                                    className={
+                                        read
+                                            ? 'message-read'
+                                            : 'message-unread'
+                                    }
+                                >
+                                    {read
+                                        ? `✓✓ ${getReadText(
+                                              message
+                                          )}`
+                                        : '✓ Отправлено'}
+                                </span>
+                            </div>
+                        )}
+
+                        {isMine && (
                             <div className="message-actions">
                                 {message.text && (
                                     <button
@@ -2243,12 +2084,6 @@ export default function Chat() {
             </div>
         )
     }
-
-    /*
-     * =========================
-     * RENDER
-     * =========================
-     */
 
     return (
         <div className="chat-page">
@@ -2294,12 +2129,8 @@ export default function Chat() {
                 <div className="chat-search">
                     <input
                         placeholder="Поиск сообщений..."
-                        value={
-                            searchText
-                        }
-                        onChange={(
-                            e
-                        ) =>
+                        value={searchText}
+                        onChange={e =>
                             setSearchText(
                                 e.target.value
                             )
@@ -2531,12 +2362,8 @@ export default function Chat() {
                         <input
                             className="message-input"
                             placeholder="Напишите сообщение..."
-                            value={
-                                text
-                            }
-                            onChange={(
-                                e
-                            ) =>
+                            value={text}
+                            onChange={e =>
                                 setText(
                                     e.target.value
                                 )
@@ -2588,9 +2415,7 @@ export default function Chat() {
 
                             <div className="participants-list">
                                 {participants.map(
-                                    (
-                                        participant
-                                    ) => {
+                                    participant => {
                                         const userId =
                                             getParticipantUserId(
                                                 participant
@@ -2637,9 +2462,7 @@ export default function Chat() {
                                                             userId
                                                         )
                                                     }
-                                                    onKeyDown={(
-                                                        e
-                                                    ) => {
+                                                    onKeyDown={e => {
                                                         if (
                                                             e.key ===
                                                             'Enter'
@@ -2706,9 +2529,7 @@ export default function Chat() {
                                                         <button
                                                             type="button"
                                                             className="participant-remove"
-                                                            onClick={(
-                                                                e
-                                                            ) => {
+                                                            onClick={e => {
                                                                 e.stopPropagation()
 
                                                                 void handleRemoveParticipant(
@@ -2738,16 +2559,12 @@ export default function Chat() {
                                         value={
                                             newParticipantPhone
                                         }
-                                        onChange={(
-                                            e
-                                        ) =>
+                                        onChange={e =>
                                             setNewParticipantPhone(
                                                 e.target.value
                                             )
                                         }
-                                        onKeyDown={(
-                                            e
-                                        ) => {
+                                        onKeyDown={e => {
                                             if (
                                                 e.key ===
                                                 'Enter'

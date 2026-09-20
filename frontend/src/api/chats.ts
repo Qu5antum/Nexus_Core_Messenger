@@ -156,3 +156,9 @@ export const leaveChat = (chatId: string) =>
 
 export const getUsersCommonChats = (userId: string) =>
     api.get(`/api/user/${userId}/chat/all`).then(r => r.data)
+
+export const markChatAsRead = (chatId: string) =>
+    api.put(`/api/chat/${chatId}/read`).then(r => r.data)
+
+export const getUnreadMessagesCount = (chatId: string) =>
+    api.get(`/api/chat/${chatId}/unread_messages`).then(r => r.data)
