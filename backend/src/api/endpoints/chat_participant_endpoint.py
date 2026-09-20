@@ -70,4 +70,3 @@ async def leave_chat(
         chatId=chat_id,
         current_user=user
     )
-

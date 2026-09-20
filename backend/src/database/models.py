@@ -108,7 +108,14 @@ class ChatParticipant(Base):
 
     joined_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), 
-        default=lambda: datetime.datetime.now(datetime.UTC), 
+        server_default=func.now(),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        nullable=False 
+    )
+
+    last_read_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True
     )
 
 

@@ -1,7 +1,8 @@
 from uuid import UUID
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from typing import Optional
+from datetime import datetime
 
 from .base_repository import BaseRepository
 from src.database.models import Message
@@ -53,3 +54,21 @@ class MessageRepository(BaseRepository):
         )
 
         return result.scalar_one_or_none()
+
+    async def get_unread_messages_count_in_chat_of_user(self, chat_id: UUID, sender_id: UUID, last_read_at: datetime | None = None) -> int:
+        query = (
+            select(func.count(self.model.id))
+            .where(
+                self.model.chat_id == chat_id,
+                self.model.sender_id != sender_id
+            )
+        )
+
+        if last_read_at:
+            query = query.where(self.model.sent_at > last_read_at)
+
+        result = await self.session.execute(query)
+
+        message_count = result.scalar_one_or_none()
+
+        return message_count or 0

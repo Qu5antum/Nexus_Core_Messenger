@@ -5,6 +5,7 @@ from fastapi import UploadFile
 from fastapi.responses import FileResponse
 from pathlib import Path
 import json
+from datetime import datetime, timezone
 
 from src.database.db import AsyncSession
 from src.database.models import User
@@ -12,8 +13,9 @@ from src.api.schemas.chat_schema import ChatCreate, ChatResponse, ChatUpdate, Co
 from src.repositories.chat_repository import ChatRepository
 from src.repositories.user_repository import UserRepository
 from src.repositories.chat_participant_repository import ChatParticipantRepository
+from src.repositories.message_repository import MessageRepository
 from src.exception_handlers.user_exceptions import UserNotFoundException, SelfActionNotAllowedException
-from src.exception_handlers.chat_exception import ChatIsNotGroupException, InvalidChatCreationException
+from src.exception_handlers.chat_exception import ChatIsNotGroupException, InvalidChatCreationException, ChatParticipantNotFoundException
 from src.exception_handlers.db_exception import DatabaseException
 from src.exception_handlers.file_exception import FileNotFoundException
 from .helper import Helper
@@ -29,6 +31,7 @@ class ChatService:
 		self.user_repo = UserRepository(session=self.session)
 		self.chat_repo = ChatRepository(session=self.session)
 		self.chat_participant_repo = ChatParticipantRepository(session=self.session)
+		self.message_repo = MessageRepository(session=self.session)
 		self.helper = Helper(session=self.session)
 		self.file_service = FileService()
 		self.redis = redis_service
@@ -427,3 +430,56 @@ class ChatService:
 			CommonChatResponse.model_validate(chat)
 			for chat in chats
 		]
+
+	async def mark_chat_as_read(self, chat_id: UUID, current_user_id: UUID) -> None:
+		await self.helper.get_chat_or_404(chatId=chat_id)
+
+		particpant = await self.chat_participant_repo.is_participant(userId=current_user_id, chatId=chat_id)
+
+		if not particpant:
+			logger.warning(
+				"Participant not found in chat",
+				extra={
+					"chat_id": str(chat_id),
+					"user_id": str(current_user_id)
+				}
+			)
+
+			raise ChatParticipantNotFoundException("Participant not found in chat")
+		
+		particpant.last_read_at = datetime.now(timezone.utc)
+
+		await self.session.commit()
+		await self.session.refresh(particpant)
+
+	async def get_unread_messages_count(self, chat_id: UUID, current_user_id: UUID) -> int:
+		await self.helper.get_chat_or_404(chatId=chat_id)
+
+		particpant = await self.chat_participant_repo.is_participant(userId=current_user_id, chatId=chat_id)
+		
+		if not particpant:
+			logger.warning(
+				"Participant not found in chat",
+				extra={
+					"chat_id": str(chat_id),
+					"user_id": str(current_user_id)
+				}
+			)
+
+			raise ChatParticipantNotFoundException("Participant not found in chat")
+
+		if not particpant.last_read_at:
+			messages_count = await self.message_repo.get_unread_messages_count_in_chat_of_user(
+				chat_id=chat_id,
+				sender_id=current_user_id
+			)
+
+			return messages_count
+
+		messages_count = await self.message_repo.get_unread_messages_count_in_chat_of_user(
+			chat_id=chat_id, 
+			sender_id=current_user_id, 
+			last_read_at=particpant.last_read_at
+		)
+
+		return messages_count

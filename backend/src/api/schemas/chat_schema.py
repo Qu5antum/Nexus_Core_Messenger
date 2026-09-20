@@ -33,6 +33,7 @@ class ChatParticipantResponse(BaseModel):
 	chat_id: UUID
 	user_id: UUID
 	joined_at: datetime
+	last_read_at: datetime | None = None
 	user: UserOut
 
 	model_config = ConfigDict(from_attributes=True)

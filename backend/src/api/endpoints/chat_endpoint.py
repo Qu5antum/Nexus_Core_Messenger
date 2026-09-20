@@ -106,3 +106,21 @@ async def get_users_common_chats(
 	chatService: ChatService = Depends(get_chat_service)
 ):
 	return await chatService.get_users_common_groups(user_id=user_id, current_user_id=user.id)
+
+
+@chat_route.put("/chat/{chat_id}/read", status_code=200)
+async def mark_chat_as_read(
+    chat_id: UUID,
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.USER)),
+	chatService: ChatService = Depends(get_chat_service)
+):
+    return await chatService.mark_chat_as_read(chat_id=chat_id, current_user_id=user.id)
+
+
+@chat_route.get("/chat/{chat_id}/unread_messages", status_code=200)
+async def get_unread_messages_count(
+	chat_id: UUID, 
+	user: User = Depends(require_roles(UserRole.ADMIN, UserRole.USER)),
+	chatService: ChatService = Depends(get_chat_service)
+):
+	return await chatService.get_unread_messages_count(chat_id=chat_id, current_user_id=user.id)
