@@ -26,3 +26,7 @@ class MessageResponse(BaseModel):
 
 class MessageUpdate(BaseModel):
 	text: Optional[str] = None
+
+
+class ForwardMessageSchema(BaseModel):
+    chat_ids: list[UUID]

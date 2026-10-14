@@ -115,3 +115,20 @@ class ChatRepository(BaseRepository):
 		)
 
 		return result.scalars().all()
+
+	async def is_chats_exists_by_multiple_ids(self, chat_ids: list[UUID], user_id: UUID) -> bool:
+		result = await self.session.execute(
+			select(self.model.id)
+			.join(self.model.chat_participants)
+			.where(
+				self.model.id.in_(chat_ids),
+				ChatParticipant.user_id == user_id
+			)
+		)
+
+		chats = result.scalars().all()
+
+		if len(chats) != len(chat_ids):
+			return False
+
+		return True

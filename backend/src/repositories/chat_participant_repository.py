@@ -1,6 +1,7 @@
 from uuid import UUID
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
+from typing import Optional
 
 from .base_repository import BaseRepository
 from src.database.models import ChatParticipant, Chat

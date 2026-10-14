@@ -1,11 +1,10 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form
 from uuid import UUID
-from pydantic import ValidationError
 
 from src.database.db import AsyncSession, get_session
 from src.database.models import User, UserRole
 from src.services.message_service import MessageService
-from src.api.schemas.message_schema import MessageResponse, MessageRequest, MessageUpdate
+from src.api.schemas.message_schema import MessageResponse, MessageRequest, MessageUpdate, ForwardMessageSchema
 from src.api.dependencies.require_role_dependency import require_roles
 from src.redis.redis_service import RedisService
 
@@ -105,4 +104,18 @@ async def search_message(
         messageText=messageText,
         chatId=chat_id,
         user=user
+    )
+
+
+@message_route.post("/chat/message/{message_id}/forward_message", status_code=201)
+async def forward_message(
+    message_id: UUID,
+    body: ForwardMessageSchema,
+    user: User = Depends(require_roles(UserRole.ADMIN, UserRole.USER)),
+    messageService: MessageService = Depends(get_message_service)
+):
+    return await messageService.forward_message(
+        current_user_id=user.id,
+        chat_ids=body.chat_ids,
+        message_id=message_id
     )

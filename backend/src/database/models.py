@@ -4,7 +4,6 @@ from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 import datetime
-from datetime import timezone
 from enum import Enum
 from typing import Optional
 
@@ -148,6 +147,13 @@ class Message(Base):
         back_populates="message",
         cascade="all, delete-orphan"
     )
+
+    forwarded_from_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+        default=None
+    ) 
 
     sent_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),

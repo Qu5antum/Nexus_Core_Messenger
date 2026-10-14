@@ -5,7 +5,7 @@ from typing import Optional
 from datetime import datetime
 
 from .base_repository import BaseRepository
-from src.database.models import Message
+from src.database.models import Message, Chat, ChatParticipant
 
 
 class MessageRepository(BaseRepository):
@@ -72,3 +72,14 @@ class MessageRepository(BaseRepository):
         message_count = result.scalar_one_or_none()
 
         return message_count or 0
+
+    async def get_message_by_user_id(self, user_id: UUID, message_id: UUID):
+        result = await self.session.execute(
+            select(self.model)
+            .where(
+                self.model.sender_id == user_id,
+                self.model.id == message_id
+            )
+        )
+
+        return result.scalar_one_or_none()

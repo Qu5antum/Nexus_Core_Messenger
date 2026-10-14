@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from sqlalchemy import select
 from uuid import UUID
-from typing import Dict, Any
+from typing import Dict, Any, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,3 +88,9 @@ class BaseRepository(AbstractRepository):
         
         except:
             raise
+
+    async def add_all(self, obj_list: Sequence[Any]) -> None:
+        self.session.add_all(obj_list)
+        await self.session.flush()
+        await self.session.commit()
+        return None

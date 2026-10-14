@@ -7,17 +7,21 @@ from datetime import datetime, timezone
 import json
 
 from src.database.db import AsyncSession
-from src.database.models import User, MessageType
+from src.database.models import User, MessageType, Message
 from src.repositories.message_repository import MessageRepository
 from src.api.schemas.message_schema import MessageRequest, MessageResponse, MessageUpdate
 from src.exception_handlers.db_exception import DatabaseException
 from src.exception_handlers.message_exception import MessageNotFoundException
+from src.exception_handlers.chat_exception import ChatNotFoundException
+from src.exception_handlers.bad_request_exception import BadRequestException
 from .helper import Helper
 from src.publisher.chat_publisher import ChatPublisher
 from src.redis.redis_service import RedisService
 from src.repositories.message_attachment_repository import MessageAttachmentRepository
 from .file_service import FileService
 from .message_attachment_service import MessageAttachmentService
+from src.repositories.chat_repository import ChatRepository
+from src.repositories.chat_participant_repository import ChatParticipantRepository
 
 logger = logging.getLogger("message")
 
@@ -32,6 +36,8 @@ class MessageService:
         self.attachment_repo = MessageAttachmentRepository(session=self.session)
         self.file_service = FileService()
         self.attachment_service = MessageAttachmentService(session=self.session)
+        self.chat_repo = ChatRepository(session=self.session)
+        self.participant_repo = ChatParticipantRepository(session==self.session)
 
     @staticmethod
     def _get_message_type(content_type: str | None) -> MessageType:
@@ -359,3 +365,84 @@ class MessageService:
 
         return messages
 
+    async def forward_message(self, current_user_id: UUID, chat_ids: list[UUID], message_id: UUID):
+        unique_chat_ids = list(set(chat_ids))
+
+        message = await self.message_repo.get_message_by_user_id(
+            user_id=current_user_id, 
+            message_id=message_id
+        )
+
+        if not message:
+            logger.warning(
+                "Message not found",
+                extra={
+                    "user_id": str(current_user_id),
+                    "message_id": str(message_id)
+                }
+            )
+
+            raise MessageNotFoundException("Message not found")
+
+        is_exists = await self.chat_repo.is_chats_exists_by_multiple_ids(
+            chat_ids=unique_chat_ids, 
+            user_id=current_user_id
+        )   
+
+        if not is_exists:
+            logger.warning(
+                "Some chats does not exists",
+                extra={
+                    "user_id": str(current_user_id),
+                    "message_id": str(message_id)
+                }
+            )
+
+            raise ChatNotFoundException("Some chats does not exists")
+
+        try:
+            new_messages = []
+
+            for chat_id in unique_chat_ids:
+                if message.chat_id == chat_id:
+                    continue
+
+                new_message = Message(
+                    chat_id = chat_id,
+                    sender_id = message.sender_id,
+                    text = message.text,
+                    message_type = message.message_type,
+                    forwarded_from_message_id = message.id,
+                )
+
+                new_messages.append(new_message)
+
+            await self.message_repo.add_all(new_messages)
+
+            return "Message successfully forwarded to chats"
+
+        except IntegrityError as e:
+            await self.session.rollback()
+
+            logger.error(
+                f"Database error, message not forwarded: {e}",
+                extra={
+                    "user_id": str(current_user_id),
+                    "message_id": str(message_id)
+                }
+            )
+
+            raise DatabaseException("Database error, message not forwarded")
+
+        except SQLAlchemyError as e:
+            await self.session.rollback()
+            
+            logger.error(
+                f"Database error, message not forwarded: {e}",
+                extra={
+                    "user_id": str(current_user_id),
+                    "message_id": str(message_id)
+                }
+            )
+
+            raise DatabaseException("Database error, message not forwarded")
