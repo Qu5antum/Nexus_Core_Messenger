@@ -1,5 +1,9 @@
 import api from './client'
 
+interface ForwardMessageRequest {
+  chat_ids: string[]; 
+}
+
 export const getMessages = (chatId: string) =>
     api.get(`/api/chat/${chatId}/messages`).then((r) => r.data)
 
@@ -58,3 +62,9 @@ export const searchMessages = (chatId: string, messageText: string) =>
     api.get(`/api/chat/${chatId}/message/search_message`, {
             params: { messageText },
         }).then((r) => r.data)
+
+export const forwardMessage = (
+    messageId: string,
+    data: ForwardMessageRequest
+) => 
+    api.post(`/api/chat/message/${messageId}/forward_message`, data).then((r) => r.data)
