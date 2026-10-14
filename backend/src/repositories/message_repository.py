@@ -76,6 +76,7 @@ class MessageRepository(BaseRepository):
     async def get_message_by_user_id(self, user_id: UUID, message_id: UUID):
         result = await self.session.execute(
             select(self.model)
+            .options(selectinload(self.model.attachments))
             .where(
                 self.model.sender_id == user_id,
                 self.model.id == message_id

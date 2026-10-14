@@ -413,6 +413,7 @@ class MessageService:
                     text = message.text,
                     message_type = message.message_type,
                     forwarded_from_message_id = message.id,
+                    attachments = message.attachments
                 )
 
                 new_messages.append(new_message)
