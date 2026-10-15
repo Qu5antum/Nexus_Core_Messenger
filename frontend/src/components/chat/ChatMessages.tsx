@@ -27,6 +27,7 @@ type ChatMessagesProps = {
     onCancelEdit: () => void
     onStartEdit: (message: Message) => void
     onDeleteMessage: (id: string) => void
+    onForwardClick: (message: Message) => void
 }
 
 export default function ChatMessages({
@@ -50,6 +51,7 @@ export default function ChatMessages({
     onCancelEdit,
     onStartEdit,
     onDeleteMessage,
+    onForwardClick
 }: ChatMessagesProps) {
     const renderAttachment = (attachment: MessageAttachment) => {
         const url = attachmentUrls[attachment.id]
@@ -132,6 +134,8 @@ export default function ChatMessages({
         const edited = isMessageEdited(message)
         const read =
             isMine && isMessageRead(message, currentUserId, participants)
+        
+        const isForwarded = message.forwarded_from_message_id !== null
 
         return (
             <div
@@ -178,6 +182,12 @@ export default function ChatMessages({
                     </div>
                 ) : (
                     <>
+                        {isForwarded && (
+                            <div className="forwarded-label">
+                                ↪ Пересланное сообщение
+                            </div>
+                        )}
+
                         {message.text && (
                             <div className="message-bubble">
                                 {message.text}
@@ -189,6 +199,7 @@ export default function ChatMessages({
                             </div>
                         )}
                         {message.attachments?.map(renderAttachment)}
+
                         {isMine && (
                             <div className="message-meta">
                                 <span
@@ -208,6 +219,7 @@ export default function ChatMessages({
                                 </span>
                             </div>
                         )}
+
                         {isMine && (
                             <div className="message-actions">
                                 {message.text && (
@@ -233,6 +245,15 @@ export default function ChatMessages({
                         )}
                     </>
                 )}
+                <div className="message-forward-action">
+                    <button
+                        type="button"
+                        className="btn-forward"
+                        onClick={() => onForwardClick(message)}
+                    >
+                        Переслать
+                    </button>
+                </div>
             </div>
         )
     }

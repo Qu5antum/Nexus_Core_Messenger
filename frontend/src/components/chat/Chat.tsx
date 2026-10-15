@@ -4,7 +4,9 @@ import ChatComposer from './ChatComposer'
 import ChatHeader from './ChatHeader'
 import ChatMessages from './ChatMessages'
 import ChatSidebar from './ChatSidebar'
-import type { Participant } from './chat.types'
+import ForwardModal from './ForwardModal'
+import type { Participant, Message } from './chat.types'
+import { forwardMessage } from '../../api/messages'
 import {
     formatLastSeen,
     getParticipantUserId,
@@ -16,6 +18,18 @@ import { useChatWebSocket } from './useChatWebSocket'
 import { useVoiceRecording } from './useVoiceRecording'
 
 export default function Chat() {
+    const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
+
+    const handleForwardSubmit = async (targetChatIds: string[]) => {
+        if (!forwardingMessage) return;
+        
+        await forwardMessage(forwardingMessage.id, {
+            chat_ids: targetChatIds
+        });
+        
+        setForwardingMessage(null);
+    };
+
     const { chatId = '' } = useParams()
     const navigate = useNavigate()
     const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -126,6 +140,7 @@ export default function Chat() {
             onDeleteMessage={id =>
                 void messageActions.handleDeleteMessage(id)
             }
+            onForwardClick={setForwardingMessage} 
         />
     )
 
@@ -206,6 +221,12 @@ export default function Chat() {
                     />
                 )}
             </div>
+
+            <ForwardModal
+                isOpen={Boolean(forwardingMessage)}
+                onClose={() => setForwardingMessage(null)}
+                onForward={handleForwardSubmit}
+            />
         </div>
     )
 }

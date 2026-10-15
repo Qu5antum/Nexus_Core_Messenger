@@ -22,6 +22,7 @@ export type Message = {
     chat_id: string
     sender_id: string
     text: string | null
+    forwarded_from_message_id: string | null
     sent_at: string
     edited_at: string
     sender?: MessageSender | null

@@ -16,6 +16,7 @@ class MessageResponse(BaseModel):
 	chat_id: UUID
 	sender_id: UUID
 	text: str | None
+	forwarded_from_message_id: UUID | None
 	sent_at: datetime
 	edited_at: datetime | None
 	sender: UserOut
