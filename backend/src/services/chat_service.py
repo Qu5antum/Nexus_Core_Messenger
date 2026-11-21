@@ -44,6 +44,10 @@ class ChatService:
 	def _get_user_chat_by_id_cach_key(chat_id: UUID, user_id: UUID) -> str:
 		return f"chat:{chat_id}:user:{user_id}"
 
+	@staticmethod
+	def _get_common_chats_of_user_cache_key(user_id: UUID) -> str:
+		return f"common_chat:{user_id}"
+
 	async def create_private_chat(self, phone_number: str, current_user: User) -> ChatResponse:
 		user_id = await self.user_repo.get_user_id_by_phone_number(phone_number=phone_number)
 
@@ -91,8 +95,10 @@ class ChatService:
 
 			await self.redis.delete(self._get_user_chats_cache_key(user_id))
 			await self.redis.delete(self._get_user_chats_cache_key(current_user.id))
+			await self.redis.delete(self._get_common_chats_of_user_cache_key(user_id))
+			await self.redis.delete(self._get_common_chats_of_user_cache_key(current_user.id))
 
-			logger.info("User chats deleted from redis cache")
+			logger.info("User chat removed from redis cache")
 
 			logger.info(
 				"New chat created, and chat participants added",
@@ -153,8 +159,9 @@ class ChatService:
 			await self.session.refresh(new_group_chat)
 
 			await self.redis.delete(self._get_user_chats_cache_key(user.id))
+			await self.redis.delete(self._get_common_chats_of_user_cache_key(user.id))
 
-			logger.info("User chats deleted from redis cache")
+			logger.info(f"User chats deleted from redis cache, user_id: {user.id}")
 
 			logger.info(
 				"New group chat created",
@@ -213,10 +220,15 @@ class ChatService:
 				data=data
 			)
 
-			await self.redis.delete(self._get_user_chats_cache_key(user.id))
-			
-			logger.info("User chats deleted from redis cache")
+			user_ids = await self.chat_participant_repo.get_user_ids_by_chat_id(chatId)
 
+			for user_id in user_ids:
+				self._get_user_chat_by_id_cach_key(chatId, user_id)
+				await self.redis.delete(self._get_user_chats_cache_key(user_id))
+				await self.redis.delete(self._get_common_chats_of_user_cache_key(user_id))
+
+				logger.info(f"User chats deleted from redis cache, chat_id: {chatId}, user_id: {user_id}")
+			
 			logger.info(
 				"Chat successfully updated",
 				extra={
@@ -259,11 +271,16 @@ class ChatService:
 
 		try:
 			await self.chat_repo.delete(id=chatId)
-			
-			await self.redis.delete(self._get_user_chats_cache_key(user.id))
-			
-			logger.info("User chats deleted from redis cache")
+						
+			user_ids = await self.chat_participant_repo.get_user_ids_by_chat_id(chatId)
 
+			for user_id in user_ids:
+				self._get_user_chat_by_id_cach_key(chatId, user_id)
+				await self.redis.delete(self._get_user_chats_cache_key(user_id))
+				await self.redis.delete(self._get_common_chats_of_user_cache_key(user_id))
+
+				logger.info(f"User chats deleted from redis cache, chat_id: {chatId}, user_id: {user_id}")
+			
 			logger.info(
 				"Chat successfully deleted",
 				extra={"chat_id": str(chatId)}
@@ -282,14 +299,23 @@ class ChatService:
 
 			raise DatabaseException("Database error, chat not deleted") from e
 
-	# add redis cache delete for all participants in chat 
 	async def delete_chat_for_admin(self, chatId: UUID) -> dict[str, str]:
 		chat = await self.helper.get_chat_or_404(chatId=chatId)
 
 		if chat.chat_avatar_url:
 			await self.file_service.delete_file(file_key=chat.chat_avatar_url)
+
 		try:
 			await self.chat_repo.delete(id=chatId)
+			
+			user_ids = await self.chat_participant_repo.get_user_ids_by_chat_id(chatId)
+
+			for user_id in user_ids:
+				self._get_user_chat_by_id_cach_key(chatId, user_id)
+				await self.redis.delete(self._get_user_chats_cache_key(user_id))
+				await self.redis.delete(self._get_common_chats_of_user_cache_key(user_id))
+
+				logger.info(f"User chats deleted from redis cache, chat_id: {chatId}, user_id: {user_id}")
 
 			logger.info(
 				"Chat successfully deleted",
@@ -418,7 +444,9 @@ class ChatService:
 
 			raise SelfActionNotAllowedException("User can't get own common groups")
 
-		cached_data = await self.redis.get(f"common_chat:{user_id}")
+		cache_key = self._get_common_chats_of_user_cache_key(current_user_id)
+
+		cached_data = await self.redis.get(cache_key)
 
 		if cached_data:
 			logger.info("Common chats fetched from Redis cache")
@@ -436,9 +464,9 @@ class ChatService:
 		]
 
 		await self.redis.set(
-			"common_chat:all",
+			cache_key,
 			json.dumps(serialized),
-			expire_seconds=15
+			expire_seconds=300
 		)
 
 		logger.info("Successful response of common chat of users")

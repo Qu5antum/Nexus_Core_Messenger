@@ -70,3 +70,11 @@ class ChatParticipantRepository(BaseRepository):
 		)
 
 		return result.scalars().all()
+
+	async def get_user_ids_by_chat_id(self, chat_id: UUID) -> list[UUID]:
+		result = await self.session.execute(
+			select(self.model.user_id)
+			.where(self.model.chat_id == chat_id)
+		)
+
+		return list(result.scalars().all())

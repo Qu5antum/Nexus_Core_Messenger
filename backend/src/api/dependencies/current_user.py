@@ -42,6 +42,6 @@ async def get_current_user(
         )
         raise UserNotFoundException("User not found")
 
-    logger.info("Successfule response of user")
+    logger.info("Successfull response of user")
 
     return user
