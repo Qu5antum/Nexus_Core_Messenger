@@ -36,6 +36,10 @@ class ChatService:
 		self.file_service = FileService()
 		self.redis = redis_service
 
+	@staticmethod
+	def _get_user_chats_cache_key(user_id: UUID) -> str:
+		return f"chat:{user_id}"
+
 	async def create_private_chat(self, phone_number: str, current_user: User) -> ChatResponse:
 		user_id = await self.user_repo.get_user_id_by_phone_number(phone_number=phone_number)
 
@@ -81,11 +85,26 @@ class ChatService:
 
 			await self.session.commit()
 
-		except IntegrityError:
+			await self.redis.delete(self._get_user_chats_cache_key(user_id))
+			await self.redis.delete(self._get_user_chats_cache_key(current_user.id))
+
+			logger.info("User chats deleted from redis cache")
+
+			logger.info(
+				"New chat created, and chat participants added",
+				extra={
+						"to_user": user_id,
+						"current_user": current_user.id
+					}
+				)
+	
+			return new_private_chat
+
+		except IntegrityError as e:
 			await self.session.rollback()
 
 			logger.error(
-				"Database Error",
+				f"Database Error: {e}",
 				exc_info=True,
 				extra={
 					"to_user": user_id,
@@ -93,17 +112,7 @@ class ChatService:
 				}
 			)
 
-			raise DatabaseException("Database Error")
-
-		logger.info(
-			"New chat created, and chat participants added",
-			extra={
-					"to_user": user_id,
-					"current_user": current_user.id
-				}
-			)
-
-		return new_private_chat
+			raise DatabaseException("Database Error") from e
 
 	async def create_group_chat(self, chat: ChatCreate, user: User, file: UploadFile | None = None) -> ChatResponse:
 		file_key: str | None = None
@@ -139,6 +148,10 @@ class ChatService:
 			await self.session.commit()
 			await self.session.refresh(new_group_chat)
 
+			await self.redis.delete(self._get_user_chats_cache_key(user.id))
+
+			logger.info("User chats deleted from redis cache")
+
 			logger.info(
 				"New group chat created",
 				extra={"user_id": str(user.id)}
@@ -146,7 +159,7 @@ class ChatService:
 	
 			return new_group_chat
 
-		except IntegrityError as e:
+		except (SQLAlchemyError, IntegrityError) as e:
 			await self.session.rollback()
 
 			logger.error(
@@ -159,21 +172,6 @@ class ChatService:
 				await self.file_service.delete_file(file_key=file_key)
 
 			raise DatabaseException("Database error, chat not created")
-
-		except SQLAlchemyError as e:
-			await self.session.rollback()
-		
-			logger.error(
-				f"Database error, chat not created: {e}",
-				exc_info=True,
-				extra={"user_id": str(user.id)}
-			)
-
-			if file_key:
-				await self.file_service.delete_file(file_key=file_key)
-
-			raise DatabaseException("Database error, chat not created")
-
 
 	async def update_chat(self, chatId: UUID, chatUpdate: ChatUpdate, user: User, file: UploadFile | None = None) -> ChatResponse:
 		chat = await self.helper.get_chat_or_404(chatId=chatId)
@@ -211,6 +209,10 @@ class ChatService:
 				data=data
 			)
 
+			await self.redis.delete(self._get_user_chats_cache_key(user.id))
+			
+			logger.info("User chats deleted from redis cache")
+
 			logger.info(
 				"Chat successfully updated",
 				extra={
@@ -221,9 +223,9 @@ class ChatService:
 	
 			return update_chat
 
-		except IntegrityError as e:
+		except (SQLAlchemyError, IntegrityError) as e:
 			await self.session.rollback()
-
+			
 			logger.error(
 				f"Database error, chat not updated {e}",
 				exc_info=True,
@@ -234,21 +236,6 @@ class ChatService:
 			)
 
 			raise DatabaseException("Chat not updated")
-
-		except SQLAlchemyError as e:
-			await self.session.rollback()
-
-			logger.error(
-				f"Database error, chat not updated {e}",
-				exc_info=True,
-				extra={
-					"chat_id": str(chatId),
-					"user_id": str(user.id)
-				}
-			)
-
-			raise DatabaseException("Chat not updated")
-
 
 	async def delete_chat(self, chatId: UUID, user: User) -> dict[str, str]:
 		chat = await self.helper.get_chat_or_404(chatId=chatId)
@@ -266,15 +253,32 @@ class ChatService:
 		if chat.chat_avatar_url:
 			await self.file_service.delete_file(file_key=chat.chat_avatar_url)
 
-		await self.chat_repo.delete(id=chatId)
+		try:
+			await self.chat_repo.delete(id=chatId)
+			
+			await self.redis.delete(self._get_user_chats_cache_key(user.id))
+			
+			logger.info("User chats deleted from redis cache")
 
-		logger.info(
-			"Chat successfully deleted",
-			extra={"chat_id": str(chatId)}
-		)
+			logger.info(
+				"Chat successfully deleted",
+				extra={"chat_id": str(chatId)}
+			)
 
-		return {"detail": "Chat successfully deleted"}
+			return {"detail": "Chat successfully deleted"}
+		
+		except (SQLAlchemyError, IntegrityError) as e:
+			await self.session.rollback()
+			
+			logger.error(
+				f"Database error, chat not deleted: {e}",
+				exc_info=True,
+				extra={"chat_id": str(chatId)}
+			)
 
+			raise DatabaseException("Database error, chat not deleted") from e
+
+	# add redis cache delete for all participants in chat 
 	async def delete_chat_for_admin(self, chatId: UUID) -> dict[str, str]:
 		chat = await self.helper.get_chat_or_404(chatId=chatId)
 
@@ -290,27 +294,16 @@ class ChatService:
 
 			return {"detail": "Chat successfully deleted"}
 
-		except IntegrityError as e:
+		except (SQLAlchemyError, IntegrityError) as e:
 			await self.session.rollback()
-
+			
 			logger.error(
 				f"Database error, chat not deleted: {e}",
 				exc_info=True,
 				extra={"chat_id": str(chatId)}
 			)
 
-			raise DatabaseException("Database error, chat not deleted")
-
-		except SQLAlchemyError as e:
-			await self.session.rollback()
-
-			logger.error(
-				f"Database error, chat not deleted: {e}",
-				exc_info=True,
-				extra={"chat_id": str(chatId)}
-			)
-
-			raise DatabaseException("Database error, chat not deleted")
+			raise DatabaseException("Database error, chat not deleted") from e
 
 	async def get_chat_by_id(self, chatId: UUID, user: User) -> ChatResponse: 
 		await self.helper.get_chat_or_404(chatId=chatId)
@@ -327,7 +320,7 @@ class ChatService:
 		return ChatResponse.model_validate(chat)
 
 	async def get_user_chats(self, user: User) -> list[ChatResponse]:
-		cached_data = await self.redis.get(f"chat:{user.id}")
+		cached_data = await self.redis.get(self._get_user_chats_cache_key(user.id))
 
 		if cached_data:
 			logger.info("Chats fetched from Redis cached")
