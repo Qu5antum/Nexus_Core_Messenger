@@ -40,6 +40,10 @@ class ChatService:
 	def _get_user_chats_cache_key(user_id: UUID) -> str:
 		return f"chat:{user_id}"
 
+	@staticmethod
+	def _get_user_chat_by_id_cach_key(chat_id: UUID, user_id: UUID) -> str:
+		return f"chat:{chat_id}:user:{user_id}"
+
 	async def create_private_chat(self, phone_number: str, current_user: User) -> ChatResponse:
 		user_id = await self.user_repo.get_user_id_by_phone_number(phone_number=phone_number)
 
@@ -305,25 +309,45 @@ class ChatService:
 
 			raise DatabaseException("Database error, chat not deleted") from e
 
-	async def get_chat_by_id(self, chatId: UUID, user: User) -> ChatResponse: 
+	async def get_chat_by_id(self, chatId: UUID, user: User) -> ChatResponse:
 		await self.helper.get_chat_or_404(chatId=chatId)
-
 		await self.helper.get_participant_or_400(userId=user.id, chatId=chatId)
 
-		chat = await self.chat_repo.get_chat_if_private_title_as_username(chatId=chatId, current_user_id=user.id)
+		cache_key = self._get_user_chat_by_id_cach_key(chatId, user.id)
 
-		logger.info(
-			"Successful response response",
-			extra={"chat_id": str(chatId)}
+		cached_data = await self.redis.get(cache_key)
+		
+		if cached_data:
+			logger.info("Chat fetched from redis cache")
+			return ChatResponse.model_validate(json.loads(cached_data))
+
+		chat = await self.chat_repo.get_chat_if_private_title_as_username(
+			chatId=chatId,
+			current_user_id=user.id,
 		)
 
-		return ChatResponse.model_validate(chat)
+		response = ChatResponse.model_validate(chat)
+
+		await self.redis.set(
+			cache_key,
+			response.model_dump_json(),
+			expire_seconds=300,
+		)
+
+		logger.info(
+			"Successful response",
+			extra={"chat_id": str(chatId)},
+		)
+
+		return response
 
 	async def get_user_chats(self, user: User) -> list[ChatResponse]:
-		cached_data = await self.redis.get(self._get_user_chats_cache_key(user.id))
+		cache_key = self._get_user_chats_cache_key(user.id)
+
+		cached_data = await self.redis.get(cache_key)
 
 		if cached_data:
-			logger.info("Chats fetched from Redis cached")
+			logger.info("Chats fetched from redis cache")
 
 			return [
 				ChatResponse.model_validate(item)
@@ -347,7 +371,7 @@ class ChatService:
 		await self.redis.set(
 			f"chat:{user.id}",
 			json.dumps(serialized),
-			expire_seconds=15
+			expire_seconds=300
 		)
 
 		logger.info(
