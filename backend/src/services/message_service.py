@@ -13,7 +13,6 @@ from src.api.schemas.message_schema import MessageRequest, MessageResponse, Mess
 from src.exception_handlers.db_exception import DatabaseException
 from src.exception_handlers.message_exception import MessageNotFoundException
 from src.exception_handlers.chat_exception import ChatNotFoundException
-from src.exception_handlers.bad_request_exception import BadRequestException
 from .helper import Helper
 from src.publisher.chat_publisher import ChatPublisher
 from src.redis.redis_service import RedisService
@@ -22,6 +21,7 @@ from .file_service import FileService
 from .message_attachment_service import MessageAttachmentService
 from src.repositories.chat_repository import ChatRepository
 from src.repositories.chat_participant_repository import ChatParticipantRepository
+from src.exception_handlers.not_found_exception import NotFoundException
 
 logger = logging.getLogger("message")
 
@@ -38,6 +38,10 @@ class MessageService:
         self.attachment_service = MessageAttachmentService(session=self.session)
         self.chat_repo = ChatRepository(session=self.session)
         self.participant_repo = ChatParticipantRepository(session==self.session)
+
+    @staticmethod
+    def _get_messages_by_chat_cache_key(chat_id: UUID) -> str:
+        return f"chat:{chat_id}:messages"
 
     @staticmethod
     def _get_message_type(content_type: str | None) -> MessageType:
@@ -107,8 +111,46 @@ class MessageService:
                 )
 
             await self.session.commit()
+            
+            message = await self.message_repo.get_message_with_sender(messageId=new_message.id)
 
-        except IntegrityError as e:
+            if not message:
+                logger.error(
+                    "Created message not found after commit",
+                    extra={
+                        "message_id": str(new_message.id),
+                        "chat_id": str(chatId),
+                    },
+                )
+
+                raise NotFoundException("Created message not found")
+
+            message_response = MessageResponse.model_validate(message)
+            await self.chat_pub.publish_message(message=message_response)
+
+            logger.info(
+                "Message published to redis",
+                extra={
+                    "chat_id": str(chatId),
+                    "message_id": str(new_message.id)
+                }
+            )
+
+            await self.redis.delete(self._get_messages_by_chat_cache_key(chatId))
+
+            logger.info(f"Messages in chat removed from redis cache: {chatId}")
+
+            logger.info(
+                "Message added to database, Message successful response",
+                extra={
+                    "chat_id": str(chatId),
+                    "sender_id": str(sender_id)
+                }
+            )
+
+            return message_response
+
+        except (SQLAlchemyError, IntegrityError) as e:
             await self.session.rollback()
 
             logger.error(
@@ -123,57 +165,8 @@ class MessageService:
             if file_key:
                 await self.file_service.delete_file(file_key=file_key)
 
-            raise DatabaseException("Message not added")
+            raise DatabaseException("Message not added") from e
 
-        except SQLAlchemyError as e:
-            await self.session.rollback()
-
-            logger.error(
-                f"Message or file not added, database error: {e}",
-                extra={
-                    "chat_id": str(chatId),
-                    "sender_id": str(sender_id)
-                }
-            )
-
-            if file_key:
-                await self.file_service.delete_file(file_key=file_key)
-
-            raise DatabaseException("Message not added")
-
-        message = await self.message_repo.get_message_with_sender(messageId=new_message.id)
-
-        if not message:
-            logger.error(
-                "Created message not found after commit",
-                extra={
-                    "message_id": str(new_message.id),
-                    "chat_id": str(chatId),
-                },
-            )
-
-            raise DatabaseException("Created message not found")
-
-        message_response = MessageResponse.model_validate(message)
-        await self.chat_pub.publish_message(message=message_response)
-
-        logger.info(
-            "Message published to redis",
-            extra={
-                "chat_id": str(chatId),
-                "message_id": str(new_message.id)
-            }
-        )
-
-        logger.info(
-            "Message added to database, Message successful response",
-            extra={
-                "chat_id": str(chatId),
-                "sender_id": str(sender_id)
-            }
-        )
-
-        return message_response
 
     async def edit_message(self, chat_id: UUID, message_id: UUID, sender_id: UUID, message_update: MessageUpdate) -> MessageResponse:
         await self.helper.get_chat_or_404(chatId=chat_id)
@@ -204,12 +197,26 @@ class MessageService:
                 id=message_id,
                 data=data
             )
+            
+            await self.redis.delete(self._get_messages_by_chat_cache_key(chat_id))
 
-        except IntegrityError:
+            logger.info(f"Messages in chat removed from redis cache: {chat_id}")
+
+            logger.info(
+                "Message updated",
+                extra={
+                    "message_id": str(message_id),
+                    "user_id": str(sender_id)
+                }
+            )
+    
+            return updated_message
+
+        except (SQLAlchemyError, IntegrityError) as e:
             await self.session.rollback()
 
             logger.error(
-                "Message not updated, Database error",
+                f"Message not updated, Database error: {e}",
                 exc_info=True,
                 extra={
                     "message_id": str(message_id),
@@ -217,17 +224,7 @@ class MessageService:
                 }
             )
 
-            raise DatabaseException("Message not updated")
-
-        logger.info(
-            "Message updated",
-            extra={
-                "message_id": str(message_id),
-                "user_id": str(sender_id)
-            }
-        )
-
-        return updated_message
+            raise DatabaseException("Message not updated") from e
 
     async def delete_message(self, chat_id: UUID, message_id: UUID, sender_id: UUID) -> dict[str, str]:
         await self.helper.get_chat_or_404(chatId=chat_id)
@@ -251,6 +248,10 @@ class MessageService:
 
         try:
             await self.message_repo.delete(id=message_id)
+                        
+            await self.redis.delete(self._get_messages_by_chat_cache_key(chat_id))
+
+            logger.info(f"Messages in chat removed from redis cache: {chat_id}")
 
             logger.info(
                 "Message successfully deleted",
@@ -262,7 +263,7 @@ class MessageService:
 
             return {"detail": "Message deleted"}
 
-        except IntegrityError as e:
+        except (SQLAlchemyError, IntegrityError) as e:
             await self.session.rollback()
 
             logger.error(
@@ -275,25 +276,12 @@ class MessageService:
                 }
             )
 
-            raise DatabaseException("Database error, message not deleted")
-
-        except SQLAlchemyError as e:
-            await self.session.rollback()
-            
-            logger.error(
-                f"Database error, message not deleted: {e}",
-                exc_info=True,
-                extra={
-                    "chat_id": str(chat_id),
-                    "sender_id": str(sender_id),
-                    "message_id": str(message_id)
-                }
-            )
-
-            raise DatabaseException("Database error, message not deleted")
+            raise DatabaseException("Database error, message not deleted") from e
 
     async def get_messages_in_chat(self, chatId: UUID, user: User) -> list[MessageResponse]:
-        cached_data = await self.redis.get(f"message:{chatId}")
+        cache_key = self._get_messages_by_chat_cache_key(chatId)
+
+        cached_data = await self.redis.get(cache_key)
 
         if cached_data:
             logger.info("Messages fetched from Redis cache")
@@ -320,9 +308,9 @@ class MessageService:
         ]
 
         await self.redis.set(
-            f"message:{chatId}",
+            cache_key,
             json.dumps(serialized),
-            expire_seconds=15
+            expire_seconds=300
         )
 
         return [
@@ -422,7 +410,7 @@ class MessageService:
 
             return "Message successfully forwarded to chats"
 
-        except IntegrityError as e:
+        except (SQLAlchemyError, IntegrityError) as e:
             await self.session.rollback()
 
             logger.error(
@@ -433,17 +421,4 @@ class MessageService:
                 }
             )
 
-            raise DatabaseException("Database error, message not forwarded")
-
-        except SQLAlchemyError as e:
-            await self.session.rollback()
-            
-            logger.error(
-                f"Database error, message not forwarded: {e}",
-                extra={
-                    "user_id": str(current_user_id),
-                    "message_id": str(message_id)
-                }
-            )
-
-            raise DatabaseException("Database error, message not forwarded")
+            raise DatabaseException("Database error, message not forwarded") from e
