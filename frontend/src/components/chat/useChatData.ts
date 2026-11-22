@@ -253,23 +253,33 @@ export function useChatData({
     }
 
     const removeChatParticipant = async (participant: Participant) => {
+        const participantId = participant.id
         const userId = getParticipantUserId(participant)
-        if (!chatId || !userId) {
+
+        if (!chatId || !participantId) {
             return
         }
+
+        console.log('[removeChatParticipant]', {
+            chatId,
+            participantId: participant.id,
+            userId: participant.user_id ?? participant.user?.id,
+            participant,
+        })
+
         try {
             setError(null)
-            await removeParticipant(chatId, userId)
+            await removeParticipant(chatId, participantId)
             setParticipants(previous =>
-                previous.filter(
-                    item => getParticipantUserId(item) !== userId
-                )
+                previous.filter(item => item.id !== participantId)
             )
-            setOnlineUsers(previous => {
-                const next = new Set(previous)
-                next.delete(userId)
-                return next
-            })
+            if (userId) {
+                setOnlineUsers(previous => {
+                    const next = new Set(previous)
+                    next.delete(userId)
+                    return next
+                })
+            }
         } catch (cause) {
             console.error(cause)
             setError(errorMessage(cause))

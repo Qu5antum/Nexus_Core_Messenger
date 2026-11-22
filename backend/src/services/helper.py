@@ -12,6 +12,7 @@ from src.repositories.chat_repository import ChatRepository
 from src.repositories.chat_participant_repository import ChatParticipantRepository
 from src.repositories.message_repository import MessageRepository
 from src.repositories.user_repository import UserRepository
+from src.exception_handlers.not_found_exception import NotFoundException
 
 logger = logging.getLogger("helper")
 
@@ -71,6 +72,19 @@ class Helper:
 			raise UserNotParticipantInChatException("User not participant in chat")
 
 		return is_participant
+
+	async def get_participant_or_404(self, participant_id: UUID) -> Optional[ChatParticipant]:
+		participant = await self.chat_participant_repo.get(participant_id)
+
+		if not participant:
+			logger.warning(
+				"Participant not found",
+				extra={"participant_id": str(participant_id)}
+			)
+
+			raise NotFoundException("Participant not found")
+
+		return participant
 
 	async def get_message_or_404(self, messageId: UUID) -> Optional[Message]:
 		message = await self.message_repo.get(id=messageId)

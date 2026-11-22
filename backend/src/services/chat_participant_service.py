@@ -29,6 +29,18 @@ class ChatParticipantService:
 		self.file_service = FileService()
 		self.redis = redis_service
 
+	@staticmethod
+	def _get_participants_chat_id_cache_key(chat_id: UUID) -> str:
+		return f"participant:{chat_id}"
+
+	@staticmethod
+	def _get_user_chats_cache_key(user_id: UUID) -> str:
+		return f"chat:{user_id}"
+
+	@staticmethod
+	def _get_common_chats_of_user_cache_key(user_id: UUID) -> str:
+		return f"common_chat:{user_id}"
+
 	async def add_participant_to_group_chat(self, chatId: UUID, phone_number: str, current_user: User) -> dict[str, str]:
 		chat = await self.helper.get_chat_or_404(chatId=chatId)
 		
@@ -84,6 +96,15 @@ class ChatParticipantService:
 
 			await self.session.commit()
 
+			await self.redis.delete(self._get_participants_chat_id_cache_key(chat))
+
+			logger.info(f"Participant removed from redis cache, chat_id: {chatId}")
+
+			await self.redis.delete(self._get_user_chats_cache_key(user.id))
+			await self.redis.delete(self._get_common_chats_of_user_cache_key(user.id))
+
+			logger.info(f"User chats removed from redis cache, user_id: {user.id}")
+
 			logger.info(
 				"New participant added to the chat",
 				extra={
@@ -94,7 +115,7 @@ class ChatParticipantService:
 	
 			return {"detail": "New participant added to the chat"}
 
-		except IntegrityError as e:
+		except (SQLAlchemyError, IntegrityError) as e:
 			await self.session.rollback()
 
 			logger.error(
@@ -105,19 +126,7 @@ class ChatParticipantService:
 
 			raise DatabaseException("Participant not added in chat")
 
-		except SQLAlchemyError as e:
-			await self.session.rollback()
-
-			logger.error(
-				f"Database error, new participant not created: {e}",
-				exc_info=True,
-				extra={"user_id": str(user.id)}
-			)
-
-			raise DatabaseException("Participant not added in chat")
-
-
-	async def remove_participant_from_chat(self, chatId: UUID, userId: UUID, current_user: User) -> dict[str, str]:
+	async def remove_participant_from_chat(self, chatId: UUID, participant_id: UUID, current_user: User) -> dict[str, str]:
 		chat = await self.helper.get_chat_or_404(chatId=chatId)
 	
 		if not chat.is_group:
@@ -128,23 +137,22 @@ class ChatParticipantService:
 
 			raise ChatIsNotGroupException("Chat is not group, you can't add participant")
 		
-		user = await self.user_repo.get(id=userId)
-
-		if not user:
-			logger.warning(
-				"User not found by id",
-				extra={"user_id": str(userId)}
-			)
-
-			raise UserNotFoundException("User not found")
-
-		is_participant = await self.helper.get_participant_or_400(userId=userId, chatId=chatId)
+		participant = await self.helper.get_participant_or_404(participant_id)
 
 		await self.helper.get_owner_or_403(ownerId=current_user.id, chatId=chatId)
 
 		try:
-			await self.chat_participant_repo.delete(id=is_participant.id)
+			await self.chat_participant_repo.delete(participant_id)
 
+			await self.redis.delete(self._get_participants_chat_id_cache_key(chat))
+
+			logger.info(f"Participant removed from redis cache, chat_id: {chatId}")
+
+			await self.redis.delete(self._get_user_chats_cache_key(participant.user_id))
+			await self.redis.delete(self._get_common_chats_of_user_cache_key(participant.user_id))
+
+			logger.info(f"User chats removed from redis cache, user_id: {participant.user_id}")
+			
 			logger.info(
 				"User successfully removed from the chat",
 				extra={
@@ -155,7 +163,7 @@ class ChatParticipantService:
 
 			return {"detail": "User removed from the chat"}
 
-		except IntegrityError as e:
+		except (SQLAlchemyError, IntegrityError) as e:
 			await self.session.rollback()
 
 			logger.error(
@@ -167,24 +175,12 @@ class ChatParticipantService:
 				}
 			)
 
-			raise DatabaseException("Database error, pariticpant not removed")
-
-		except SQLAlchemyError as e:
-			await self.session.rollback()
-
-			logger.error(
-				f"Database error, participant not removed: {e}",
-				exc_info=True,
-				extra={
-					"chat_id": str(chatId),
-					"user_id": str(current_user.id)
-				}
-			)
-
-			raise DatabaseException("Database error, pariticpant not removed")
-
+			raise DatabaseException("Database error, pariticpant not removed") from e
+			
 	async def get_participants_chat(self, chatId: UUID, user: User) -> list[ChatParticipantResponse]:
-		cached_data = await self.redis.get(f"participant:{chatId}")
+		cache_key = self._get_participants_chat_id_cache_key(chatId)
+
+		cached_data = await self.redis.get(cache_key)
 
 		if cached_data:
 			logger.info("Participants fetched from Redis cache")
@@ -206,7 +202,7 @@ class ChatParticipantService:
 		]
 
 		await self.redis.set(
-			f"participant:{chatId}",
+			cache_key,
 			json.dumps(serialized),
 			expire_seconds=15
 		)
@@ -245,6 +241,15 @@ class ChatParticipantService:
 						await self.file_service.delete_file(file_key=chat.chat_avatar_url)
 
 					await self.chat_repo.delete(id=chat.id)
+					
+					await self.redis.delete(self._get_participants_chat_id_cache_key(chat))
+
+					logger.info(f"Participant removed from redis cache, chat_id: {chatId}")
+
+					await self.redis.delete(self._get_user_chats_cache_key(current_user.id))
+					await self.redis.delete(self._get_common_chats_of_user_cache_key(current_user.id))
+
+					logger.info(f"User chats removed from redis cache, user_id: {current_user.id}")
 
 					logger.info(
 						"Chat group is empty, chat deleted",
@@ -278,7 +283,7 @@ class ChatParticipantService:
 
 			return {"detail": "User successfully leaved from chat"}
 
-		except IntegrityError as e:
+		except (SQLAlchemyError, IntegrityError) as e:
 			await self.session.rollback()
 			
 			logger.error(
@@ -290,18 +295,4 @@ class ChatParticipantService:
 				}
 			)
 
-			raise DatabaseException("Database error, pariticpant not removed")
-
-		except SQLAlchemyError as e:
-			await self.session.rollback()
-			
-			logger.error(
-				f"Database error, participant not removed: {e}",
-				exc_info=True,
-				extra={
-					"chat_id": str(chatId),
-					"user_id": str(current_user.id)
-				}
-			)
-
-			raise DatabaseException("Database error, pariticpant not removed")
+			raise DatabaseException("Database error, pariticpant not removed") from e

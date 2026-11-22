@@ -34,16 +34,16 @@ async def add_participant_to_group_chat(
     )
 
 
-@chat_participant_route.delete("/chat/{chat_id}/participant/{user_id}/remove_participant", status_code=200)
+@chat_participant_route.delete("/chat/{chat_id}/participant/{participant_id}/remove_participant", status_code=200)
 async def remove_participant(
     chat_id: UUID,
-    user_id: UUID,
+    participant_id: UUID,
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.USER)),
     chatParticipantService: ChatParticipantService = Depends(get_chat_participant_service)
 ):
     return await chatParticipantService.remove_participant_from_chat(
         chatId=chat_id, 
-        userId=user_id, 
+        participant_id=participant_id, 
         current_user=user
     )
 
