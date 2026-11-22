@@ -87,7 +87,7 @@ async def get_message_by_id(
     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.USER)),
     messageService: MessageService = Depends(get_message_service)
 ):
-    return await messageService.get_message(
+    return await messageService.get_message_by_id(
         messageId=message_id,
         user=user
     )

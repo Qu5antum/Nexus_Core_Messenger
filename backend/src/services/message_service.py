@@ -44,6 +44,10 @@ class MessageService:
         return f"chat:{chat_id}:messages"
 
     @staticmethod
+    def _get_message_by_id_cache_key(message_id: UUID) -> str:
+        return f"message:{message_id}"
+
+    @staticmethod
     def _get_message_type(content_type: str | None) -> MessageType:
         if not content_type:
             return MessageType.FILE
@@ -202,6 +206,10 @@ class MessageService:
 
             logger.info(f"Messages in chat removed from redis cache: {chat_id}")
 
+            await self.redis.delete(self._get_message_by_id_cache_key(message_id))
+
+            logger.info(f"Message removed from redis cache, message_id: {message_id}")
+
             logger.info(
                 "Message updated",
                 extra={
@@ -252,6 +260,10 @@ class MessageService:
             await self.redis.delete(self._get_messages_by_chat_cache_key(chat_id))
 
             logger.info(f"Messages in chat removed from redis cache: {chat_id}")
+            
+            await self.redis.delete(self._get_message_by_id_cache_key(message_id))
+
+            logger.info(f"Message removed from redis cache, message_id: {message_id}")
 
             logger.info(
                 "Message successfully deleted",
@@ -318,19 +330,45 @@ class MessageService:
             for message in messages
         ]
 
-    async def get_message(self, messageId: UUID, user: User) -> MessageResponse:
-        message = await self.helper.get_message_or_404(messageId=messageId)
+    async def get_message_by_id(self, message_id: UUID, user: User) -> MessageResponse:
+        cache_key = self._get_message_by_id_cache_key(message_id)
+
+        cached_data = await self.redis.get(cache_key)
+
+        if not cached_data:
+            logger.info(f"Message fetched from redis cache, message_id: {message_id}")
+
+            validated_data = MessageResponse.model_validate(cached_data)
+
+            message = await self.helper.get_message_or_404(validated_data.id)
+
+            await self.helper.get_participant_or_400(
+                userId=user.id,
+                chatId=validated_data.id
+            )
+
+            return message
+
+        message = await self.helper.get_message_or_404(message_id)
 
         await self.helper.get_participant_or_400(
             userId=user.id,
             chatId=message.chat_id
         )
 
+        response = MessageResponse.model_validate(message)
+
+        await self.redis.set(
+            cache_key,
+            response.model_dump_json(),
+            expire_seconds=300
+        )
+
         logger.info(
             "Successfull response of message",
             extra={
-                "message_id": str(messageId),
-                "user_id": str(messageId)
+                "message_id": str(message_id),
+                "user_id": str(message_id)
             }
         )
 
@@ -407,6 +445,20 @@ class MessageService:
                 new_messages.append(new_message)
 
             await self.message_repo.add_all(new_messages)
+
+            for chat_id in unique_chat_ids:
+                await self.redis.delete(self._get_messages_by_chat_cache_key(chat_id))
+
+                logger.info(f"Messages in chat removed from redis cache: {chat_id}")
+
+            await self.redis.delete(self._get_message_by_id_cache_key(message_id))
+
+            logger.info(f"Message removed from redis cache, message_id: {message_id}")
+
+            logger.info(
+                "Message successfulle forwarded to chats",
+                extra={"message_id": str(message_id)}
+            )
 
             return "Message successfully forwarded to chats"
 
