@@ -28,6 +28,10 @@ class UserService:
         self.helper = Helper(session=self.session)
         self.redis = redis_service
 
+    @staticmethod
+    def _get_user_by_id_cache_key(user_id: UUID) -> str:
+        return f"user:{user_id}"
+
     async def get_user_by_phone_number(self, phone_number: str) -> UserOut:
         user = await self.user_repo.get_user_by_phone_number(phone_number=phone_number)
 
@@ -44,26 +48,28 @@ class UserService:
         return user
 
     async def get_user_by_id(self, user_id: UUID) -> UserOut:
-        cached_data = await self.redis.get(f"user:{user_id}")
+        cache_key = self._get_user_by_id_cache_key(user_id)
+
+        cached_data = await self.redis.get(cache_key)
 
         if cached_data:
             logger.info("User fetched from Redis cached")
 
             return UserOut.model_validate(json.loads(cached_data))
-        
+
         user = await self.helper.get_user_obj_or_404(user_id=user_id)
 
-        serialized = UserOut.model_validate(user).model_dump(mode="json")
+        response = UserOut.model_validate(user)
 
         await self.redis.set(
-            f"user:{user_id}",
-            json.dumps(serialized),
-            expire_seconds=15
+            cache_key,
+            response.model_dump_json(),
+            expire_seconds=300
         )
 
-        logger.info("Successful response of user by id")
+        logger.info(f"Successful response of user by id, user_id: {user_id}")
 
-        return UserOut.model_validate(user)
+        return response
 
     async def update_profile(self, current_user_id: UUID, user_update: UserUpdate, avatar_file: UploadFile | None = None) -> dict[str, str]:
         user = await self.helper.get_user_obj_or_404(user_id=current_user_id)
@@ -91,11 +97,15 @@ class UserService:
 
             await self.user_repo.update(id=current_user_id, data=data)
 
+            await self.redis.delete(self._get_user_by_id_cache_key(current_user_id))
+
+            logger.info(f"User removed from redis cache key, user_id: {current_user_id}")
+
             logger.info("User profile successfully updated")
 
             return {"detail": "User profile updated"}
 
-        except IntegrityError as e:
+        except (SQLAlchemyError, IntegrityError) as e:
             await self.session.rollback()
 
             logger.error(
@@ -106,20 +116,7 @@ class UserService:
             if file_key:
                 await self.file_service.delete_file(file_key=file_key)
 
-            raise DatabaseException("Database error")
-
-        except SQLAlchemyError as e:
-            await self.session.rollback()
-
-            logger.error(
-                f"Error, profile not updated: {e}",
-                extra={"user_id": str(current_user_id)}
-            )
-
-            if file_key:
-                await self.file_service.delete_file(file_key=file_key)
-
-            raise DatabaseException("Database error")    
+            raise DatabaseException("Database error") from e
 
     async def get_user_avatar_profile(self, user_id: UUID) -> FileResponse:
         user = await self.helper.get_user_obj_or_404(user_id=user_id)

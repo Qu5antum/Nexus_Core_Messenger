@@ -1,5 +1,5 @@
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from jose import JWTError
 from datetime import timedelta
 import logging
@@ -141,19 +141,19 @@ class AuthService:
 
             await self.session.commit()
 
-        except IntegrityError:
+            logger.info(
+                "User inserted in db",
+                extra={"username": str(new_user.id)}
+            )
+            
+            return {"detail": "The user has been successfully registered"}       
+
+        except (SQLAlchemyError, IntegrityError) as e:
             await self.session.rollback()
 
             logger.error(
-                "Database insert error",
+                f"Database insert error: {e}",
                 exc_info=True,
                 extra={"username": user.username}
             )
-            raise DatabaseException("DB ERROR!")
-        
-        logger.info(
-            "User inserted in db",
-            extra={"username": str(new_user.id)}
-        )
-        
-        return {"detail": "The user has been successfully registered"}       
+            raise DatabaseException("Database error") from e

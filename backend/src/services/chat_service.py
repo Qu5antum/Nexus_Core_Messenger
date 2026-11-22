@@ -345,6 +345,7 @@ class ChatService:
 		
 		if cached_data:
 			logger.info("Chat fetched from redis cache")
+			
 			return ChatResponse.model_validate(json.loads(cached_data))
 
 		chat = await self.chat_repo.get_chat_if_private_title_as_username(
