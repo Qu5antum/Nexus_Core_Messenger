@@ -23,25 +23,42 @@ export function useChatWebSocket({
     scrollToBottom,
 }: UseChatWebSocketOptions) {
     const wsRef = useRef<WebSocket | null>(null)
+    const chatIdRef = useRef(chatId)
+    const scrollToBottomRef = useRef(scrollToBottom)
 
     useEffect(() => {
-        if (!chatId) {
-            return
-        }
+        chatIdRef.current = chatId
+    }, [chatId])
 
+    useEffect(() => {
+        scrollToBottomRef.current = scrollToBottom
+    }, [scrollToBottom])
+
+    useEffect(() => {
         const token = localStorage.getItem('access_token')
         if (!token) {
             return
         }
 
+        let isCleanedUp = false
         const ws = new WebSocket(buildWsUrl(token))
         wsRef.current = ws
 
-        const updateParticipantOnlineStatus = (
+        const applyOnlineStatus = (
             userId: string,
             isOnline: boolean,
             lastSeenAt?: string | null
         ) => {
+            setOnlineUsers(previous => {
+                const next = new Set(previous)
+                if (isOnline) {
+                    next.add(userId)
+                } else {
+                    next.delete(userId)
+                }
+                return next
+            })
+
             setParticipants(previous =>
                 previous.map(participant => {
                     if (getParticipantUserId(participant) !== userId) {
@@ -51,7 +68,7 @@ export function useChatWebSocket({
                     return {
                         ...participant,
                         user: {
-                            ...(participant.user || { id: userId }),
+                            ...(participant.user ?? { id: userId }),
                             is_online: isOnline,
                             ...(lastSeenAt !== undefined
                                 ? { last_seen_at: lastSeenAt }
@@ -67,6 +84,10 @@ export function useChatWebSocket({
         }
 
         ws.onmessage = event => {
+            if (typeof event.data !== 'string') {
+                return
+            }
+
             try {
                 const payload = JSON.parse(
                     event.data
@@ -82,26 +103,17 @@ export function useChatWebSocket({
                     }
 
                     const isOnline = payload.type === 'user.online'
-                    setOnlineUsers(previous => {
-                        const next = new Set(previous)
-                        if (isOnline) {
-                            next.add(userId)
-                        } else {
-                            next.delete(userId)
-                        }
-                        return next
-                    })
-                    updateParticipantOnlineStatus(
+                    applyOnlineStatus(
                         userId,
                         isOnline,
-                        isOnline ? undefined : payload.last_seen_at || null
+                        isOnline ? undefined : payload.last_seen_at ?? null
                     )
                     return
                 }
 
                 if (
                     payload.type === 'message_created' &&
-                    String(payload.chat_id) === String(chatId)
+                    String(payload.chat_id) === String(chatIdRef.current)
                 ) {
                     const newMessage = payload.data
                     if (!newMessage?.id) {
@@ -118,7 +130,10 @@ export function useChatWebSocket({
                         }
                         return [...previous, newMessage]
                     })
-                    window.setTimeout(scrollToBottom, 50)
+
+                    window.setTimeout(() => {
+                        scrollToBottomRef.current()
+                    }, 50)
                 }
             } catch (cause) {
                 console.error('WS message parse error:', cause)
@@ -128,11 +143,15 @@ export function useChatWebSocket({
         ws.onerror = event => {
             console.error('WebSocket error:', event)
         }
+
         ws.onclose = () => {
-            console.log('WebSocket disconnected')
+            if (!isCleanedUp) {
+                console.log('WebSocket disconnected')
+            }
         }
 
         return () => {
+            isCleanedUp = true
             if (
                 ws.readyState === WebSocket.OPEN ||
                 ws.readyState === WebSocket.CONNECTING
@@ -143,13 +162,7 @@ export function useChatWebSocket({
                 wsRef.current = null
             }
         }
-    }, [
-        chatId,
-        scrollToBottom,
-        setMessages,
-        setOnlineUsers,
-        setParticipants,
-    ])
+    }, [setMessages, setOnlineUsers, setParticipants])
 
     return wsRef
 }

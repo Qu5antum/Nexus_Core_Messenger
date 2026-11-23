@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
     addParticipant,
     getChat,
@@ -42,6 +42,34 @@ export function useChatData({
         Record<string, string>
     >({})
 
+    const scrollToBottomRef = useRef(scrollToBottom)
+    useEffect(() => {
+        scrollToBottomRef.current = scrollToBottom
+    }, [scrollToBottom])
+
+    const applyParticipants = useCallback(
+        (loadedParticipants: Participant[]) => {
+            setParticipants(loadedParticipants)
+            setOnlineUsers(previousOnline => {
+                const nextOnline = new Set<string>()
+                for (const participant of loadedParticipants) {
+                    const userId = getParticipantUserId(participant)
+                    if (!userId) {
+                        continue
+                    }
+                    if (
+                        participant.user?.is_online === true ||
+                        previousOnline.has(userId)
+                    ) {
+                        nextOnline.add(userId)
+                    }
+                }
+                return nextOnline
+            })
+        },
+        []
+    )
+
     useEffect(() => {
         if (!chatId) {
             return
@@ -70,22 +98,11 @@ export function useChatData({
 
                 setChat(chatInfo)
                 setMessages(loadedMessages)
-                setParticipants(loadedParticipants)
-                setOnlineUsers(
-                    new Set(
-                        loadedParticipants
-                            .filter(
-                                participant =>
-                                    participant.user?.is_online === true
-                            )
-                            .map(getParticipantUserId)
-                            .filter(Boolean)
-                    )
-                )
+                applyParticipants(loadedParticipants)
 
                 window.setTimeout(() => {
                     if (!cancelled) {
-                        scrollToBottom(false)
+                        scrollToBottomRef.current(false)
                     }
                 }, 100)
             } catch (cause) {
@@ -104,47 +121,7 @@ export function useChatData({
         return () => {
             cancelled = true
         }
-    }, [chatId, scrollToBottom])
-
-    useEffect(() => {
-        if (!chatId) {
-            return
-        }
-
-        let cancelled = false
-        const refreshParticipants = async () => {
-            try {
-                const loadedParticipants = await getParticipants(chatId)
-                if (cancelled) {
-                    return
-                }
-
-                setParticipants(loadedParticipants)
-                setOnlineUsers(
-                    new Set(
-                        loadedParticipants
-                            .filter(
-                                participant =>
-                                    participant.user?.is_online === true
-                            )
-                            .map(getParticipantUserId)
-                            .filter(Boolean)
-                    )
-                )
-            } catch (cause) {
-                console.error('Participants refresh error:', cause)
-            }
-        }
-
-        const intervalId = window.setInterval(
-            () => void refreshParticipants(),
-            5000
-        )
-        return () => {
-            cancelled = true
-            window.clearInterval(intervalId)
-        }
-    }, [chatId])
+    }, [chatId, applyParticipants])
 
     useEffect(() => {
         if (participants.length === 0) {
@@ -232,18 +209,7 @@ export function useChatData({
             setError(null)
             await addParticipant(chatId, phone)
             const loadedParticipants = await getParticipants(chatId)
-            setParticipants(loadedParticipants)
-            setOnlineUsers(
-                new Set(
-                    loadedParticipants
-                        .filter(
-                            participant =>
-                                participant.user?.is_online === true
-                        )
-                        .map(getParticipantUserId)
-                        .filter(Boolean)
-                )
-            )
+            applyParticipants(loadedParticipants)
             return true
         } catch (cause) {
             console.error(cause)
@@ -259,13 +225,6 @@ export function useChatData({
         if (!chatId || !participantId) {
             return
         }
-
-        console.log('[removeChatParticipant]', {
-            chatId,
-            participantId: participant.id,
-            userId: participant.user_id ?? participant.user?.id,
-            participant,
-        })
 
         try {
             setError(null)
