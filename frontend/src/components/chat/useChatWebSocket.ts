@@ -9,14 +9,16 @@ import { getParticipantUserId } from './chat.utils'
 
 type UseChatWebSocketOptions = {
     chatId: string
+    token?: string | null
     setMessages: React.Dispatch<React.SetStateAction<Message[]>>
     setOnlineUsers: React.Dispatch<React.SetStateAction<Set<string>>>
     setParticipants: React.Dispatch<React.SetStateAction<Participant[]>>
-    scrollToBottom: () => void
+    scrollToBottom: (smooth?: boolean) => void
 }
 
 export function useChatWebSocket({
     chatId,
+    token,
     setMessages,
     setOnlineUsers,
     setParticipants,
@@ -35,13 +37,13 @@ export function useChatWebSocket({
     }, [scrollToBottom])
 
     useEffect(() => {
-        const token = localStorage.getItem('access_token')
-        if (!token) {
+        const activeToken = token ?? localStorage.getItem('access_token')
+        if (!activeToken) {
             return
         }
 
         let isCleanedUp = false
-        const ws = new WebSocket(buildWsUrl(token))
+        const ws = new WebSocket(buildWsUrl(activeToken))
         wsRef.current = ws
 
         const applyOnlineStatus = (
@@ -162,7 +164,7 @@ export function useChatWebSocket({
                 wsRef.current = null
             }
         }
-    }, [setMessages, setOnlineUsers, setParticipants])
+    }, [token, setMessages, setOnlineUsers, setParticipants])
 
     return wsRef
 }

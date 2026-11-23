@@ -24,7 +24,6 @@ class WebsocketService:
         self.chat_participant_repo = ChatParticipantRepository(self.session)
         self.helper = WebsocketHelper(session=self.session)
         
-
     async def connect(self, websocket: WebSocket, user_id: UUID) -> None:
         was_online = not self.manager.is_online(user_id=user_id)
 
@@ -85,6 +84,12 @@ class WebsocketService:
 
     async def notify_user_online(self, user_id: UUID) -> None:
         user_ids = await self.helper.get_related_user_ids(user_id=user_id)
+
+        logger.info(
+            "Notifying related users about online status. user_id=%s, related_users=%s",
+            user_id,
+            user_ids,
+        )
 
         await self.manager.send_to_users(
             list(user_ids),

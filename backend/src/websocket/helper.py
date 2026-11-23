@@ -29,7 +29,7 @@ class WebsocketHelper:
             )
 
             for participant in participants:
-                if participant.user_id != user_id:
+                if str(participant.user_id) != str(user_id):
                     user_ids.add(participant.user_id)
 
         return user_ids
